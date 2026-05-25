@@ -59,4 +59,5 @@ class DefaultFirebaseOptions {
     projectId: 'ppbe-02-paybar',
     storageBucket: 'ppbe-02-paybar.firebasestorage.app',
   );
+
 }

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "801135348016",
+    "project_id": "ppbe-02-paybar",
+    "storage_bucket": "ppbe-02-paybar.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:801135348016:android:64873b94ece89aa11a60f5",
+        "android_client_info": {
+          "package_name": "com.example.paybar_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAyRaNP5jzDCEgDMaTibcw-flaMXFqPG9k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

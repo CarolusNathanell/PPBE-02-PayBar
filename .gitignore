@@ -1,3 +1,6 @@
+# Project context — local reference only
+CONTEXT.md
+
 # Miscellaneous
 *.class
 *.lock

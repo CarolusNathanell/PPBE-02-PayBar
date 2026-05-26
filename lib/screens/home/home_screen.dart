@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:paybar_app/core/theme/app_colors.dart';
 import 'package:paybar_app/core/theme/app_typography.dart';
-import 'package:paybar_app/features/auth/data/auth_service.dart';
+import 'package:paybar_app/services/auth_service.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});

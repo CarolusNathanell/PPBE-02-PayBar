@@ -2,8 +2,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:paybar_app/core/theme/app_theme.dart';
-import 'package:paybar_app/features/auth/presentation/screens/login_screen.dart';
-import 'package:paybar_app/features/home/presentation/screens/home_screen.dart';
+import 'package:paybar_app/screens/auth/login_screen.dart';
+import 'package:paybar_app/screens/home/home_screen.dart';
 import 'firebase_options.dart';
 
 void main() async {

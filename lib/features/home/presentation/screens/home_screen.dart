@@ -2,28 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:paybar_app/core/theme/app_colors.dart';
 import 'package:paybar_app/core/theme/app_typography.dart';
 import 'package:paybar_app/features/auth/data/auth_service.dart';
+import 'package:paybar_app/screens/reminder/reminder_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final authService = AuthService();
+  State<HomeScreen> createState() => _HomeScreenState();
+}
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('PayBar'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout_rounded),
-            tooltip: 'Keluar',
-            onPressed: () => authService.signOut(),
-            // signOut() memicu authStateChanges → StreamBuilder di main.dart
-            // otomatis kembali ke LoginScreen
-          ),
-        ],
-      ),
-      body: Center(
+class _HomeScreenState extends State<HomeScreen> {
+  int _currentIndex = 0;
+  final _authService = AuthService();
+
+Widget get _homeTab => Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
           child: Column(
@@ -51,12 +43,58 @@ class HomeScreen extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 'Fitur akan segera hadir',
-                style: AppTypography.body.copyWith(color: AppColors.textSecondary),
+                style: AppTypography.body
+                    .copyWith(color: AppColors.textSecondary),
                 textAlign: TextAlign.center,
               ),
             ],
           ),
         ),
+      );
+
+  List<Widget> get _screens => [
+        _homeTab,
+        const ReminderScreen(),
+      ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('PayBar'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout_rounded),
+            tooltip: 'Keluar',
+            onPressed: () => _authService.signOut(),
+          ),
+        ],
+      ),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: _screens,
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _currentIndex,
+        onDestinationSelected: (index) =>
+            setState(() => _currentIndex = index),
+        backgroundColor: AppColors.white,
+        indicatorColor: AppColors.primary.withValues(alpha: 0.12),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home_rounded, color: AppColors.primary),
+            label: 'Beranda',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.notifications_outlined),
+            selectedIcon: Icon(
+              Icons.notifications_rounded,
+              color: AppColors.primary,
+            ),
+            label: 'Reminder',
+          ),
+        ],
       ),
     );
   }

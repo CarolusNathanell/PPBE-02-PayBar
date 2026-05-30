@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:paybar_app/core/theme/app_colors.dart';
 import 'package:paybar_app/core/theme/app_typography.dart';
-import 'package:paybar_app/services/auth_service.dart';
+<<<<<<< HEAD:lib/features/home/presentation/screens/home_screen.dart
+import 'package:paybar_app/features/auth/data/auth_service.dart';
 import 'package:paybar_app/screens/reminder/reminder_screen.dart';
+=======
+import 'package:paybar_app/services/auth_service.dart';
+>>>>>>> 1ef0bee43c4ac47785694b6bfcbc767ec5eef0c3:lib/screens/home/home_screen.dart
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,7 +19,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   final _authService = AuthService();
 
-  Widget get _homeTab => Center(
+Widget get _homeTab => Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
           child: Column(

@@ -20,4 +20,9 @@ class AppColors {
   static const Color white = Color(0xFFFFFFFF);
   static const Color border = Color(0xFFDFE6E9);
   static const Color divider = Color(0xFFB2BEC3);
+
+  static const settledBg = Color(0xFFE8FDF9);
+  static const settledFg = Color(0xFF0B8C76);
+  static const pendingBg = Color(0xFFFFF3CD);
+  static const pendingFg = Color(0xFFD08000);
 }

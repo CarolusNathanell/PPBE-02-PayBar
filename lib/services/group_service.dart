@@ -29,9 +29,13 @@ class GroupService {
     return _firestore
         .collection('groups')
         .where('members', arrayContains: _uid)
-        .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((s) => s.docs.map(GroupModel.fromFirestore).toList());
+        .map((s) {
+      final list = s.docs.map(GroupModel.fromFirestore).toList();
+      // Sort client-side — hindari kebutuhan composite index Firestore
+      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return list;
+    });
   }
 
   Future<void> updateGroupName(String groupId, String name) {

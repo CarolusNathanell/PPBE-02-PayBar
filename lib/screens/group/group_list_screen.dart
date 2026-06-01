@@ -6,12 +6,22 @@ import 'package:paybar_app/models/group_model.dart';
 import 'package:paybar_app/services/group_service.dart';
 import 'group_detail_screen.dart';
 
-class GroupListScreen extends StatelessWidget {
+class GroupListScreen extends StatefulWidget {
   const GroupListScreen({super.key});
 
   @override
+  State<GroupListScreen> createState() => _GroupListScreenState();
+}
+
+class _GroupListScreenState extends State<GroupListScreen> {
+  final _groupService = GroupService();
+  // Mengganti key paksa StreamBuilder berlangganan ulang saat retry
+  Key _streamKey = UniqueKey();
+
+  void _retry() => setState(() => _streamKey = UniqueKey());
+
+  @override
   Widget build(BuildContext context) {
-    final groupService = GroupService();
     final currentUid = FirebaseAuth.instance.currentUser!.uid;
 
     return Scaffold(
@@ -23,7 +33,8 @@ class GroupListScreen extends StatelessWidget {
         scrolledUnderElevation: 1,
       ),
       body: StreamBuilder<List<GroupModel>>(
-        stream: groupService.getGroups(),
+        key: _streamKey,
+        stream: _groupService.getGroups(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
@@ -31,14 +42,15 @@ class GroupListScreen extends StatelessWidget {
             );
           }
           if (snapshot.hasError) {
-            return _ErrorState(onRetry: () {});
+            return _ErrorState(onRetry: _retry);
           }
 
           final groups = snapshot.data ?? [];
 
           if (groups.isEmpty) {
             return _EmptyState(
-              onCreateGroup: () => _showCreateDialog(context, groupService),
+              onCreateGroup: () =>
+                  _showCreateDialog(context, _groupService),
             );
           }
 
@@ -59,7 +71,7 @@ class GroupListScreen extends StatelessWidget {
         },
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showCreateDialog(context, groupService),
+        onPressed: () => _showCreateDialog(context, _groupService),
         icon: const Icon(Icons.add_rounded),
         label: const Text('Buat Grup'),
         backgroundColor: AppColors.primary,

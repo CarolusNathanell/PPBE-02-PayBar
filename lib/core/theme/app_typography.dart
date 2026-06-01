@@ -40,6 +40,12 @@ class AppTypography {
     fontWeight: FontWeight.w400,
     color: AppColors.textSecondary,
   );
+  
+  static TextStyle subCaption = GoogleFonts.poppins(
+    fontSize: 12,
+    fontWeight: FontWeight.w400,
+    color: AppColors.textSecondary,
+  );
 
   // SemiBold untuk nominal uang
   static TextStyle nominal = GoogleFonts.poppins(
@@ -52,5 +58,11 @@ class AppTypography {
     fontSize: 16,
     fontWeight: FontWeight.w500,
     color: AppColors.white,
+  );
+
+  static TextStyle avatar = GoogleFonts.poppins(
+    fontSize: 13,
+    fontWeight: FontWeight.w600,
+    color: AppColors.textPrimary,
   );
 }

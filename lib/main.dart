@@ -7,6 +7,7 @@ import 'package:paybar_app/screens/auth/login_screen.dart';
 import 'package:paybar_app/screens/home/home_screen.dart';
 import 'package:paybar_app/services/notification_service.dart';
 import 'firebase_options.dart';
+import 'screens/dashboard/dashboard_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

@@ -5,6 +5,7 @@ import 'package:paybar_app/screens/group/group_list_screen.dart';
 import 'package:paybar_app/screens/reminder/reminder_screen.dart';
 import 'package:paybar_app/services/auth_service.dart';
 import 'package:paybar_app/widgets/bottom_nav_bar.dart';
+import 'package:paybar_app/screens/dashboard/dashboard_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -19,7 +20,8 @@ class _HomeScreenState extends State<HomeScreen> {
   // Tiap tab punya Scaffold sendiri — HomeScreen hanya menyediakan
   // IndexedStack + NavigationBar tanpa AppBar tambahan
   late final List<Widget> _screens = [
-    _BerandaTab(onLogout: AuthService().signOut),
+    const DashboardScreen(),
+    // _BerandaTab(onLogout: AuthService().signOut),
     const GroupListScreen(),
     const ReminderScreen(),
   ];

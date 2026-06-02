@@ -117,6 +117,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
       final tx = TransactionModel(
         id: widget.existing?.id ?? '',
+        groupId: widget.groupId,
         description: _descController.text.trim(),
         amount: amount,
         currency: _selectedCurrency,

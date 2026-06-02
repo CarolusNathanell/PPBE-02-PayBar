@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 class TransactionModel {
   final String id;
+  final String groupId; // referensi ke groups/{groupId}
   final String description;
   final double amount;
   final String currency;
@@ -11,6 +12,7 @@ class TransactionModel {
 
   const TransactionModel({
     required this.id,
+    required this.groupId,
     required this.description,
     required this.amount,
     required this.currency,
@@ -26,6 +28,7 @@ class TransactionModel {
     final d = doc.data() as Map<String, dynamic>;
     return TransactionModel(
       id: doc.id,
+      groupId: d['groupId'] ?? '',
       description: d['description'] ?? '',
       amount: (d['amount'] as num?)?.toDouble() ?? 0,
       currency: d['currency'] ?? 'IDR',
@@ -38,6 +41,7 @@ class TransactionModel {
   }
 
   Map<String, dynamic> toFirestore() => {
+        'groupId': groupId,
         'description': description,
         'amount': amount,
         'currency': currency,
@@ -48,6 +52,7 @@ class TransactionModel {
 
   TransactionModel copyWith({
     String? id,
+    String? groupId,
     String? description,
     double? amount,
     String? currency,
@@ -57,6 +62,7 @@ class TransactionModel {
   }) =>
       TransactionModel(
         id: id ?? this.id,
+        groupId: groupId ?? this.groupId,
         description: description ?? this.description,
         amount: amount ?? this.amount,
         currency: currency ?? this.currency,

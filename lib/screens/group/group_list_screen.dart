@@ -108,7 +108,7 @@ class _GroupListScreenState extends State<GroupListScreen> {
           autofocus: true,
           textCapitalization: TextCapitalization.words,
           decoration: const InputDecoration(
-            hintText: 'Mis. Liburan Bali, Arisan RT',
+            hintText: 'Mis: Bayar Makan Malam',
           ),
         ),
         actions: [

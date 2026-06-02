@@ -4,6 +4,7 @@ import 'package:paybar_app/core/theme/app_typography.dart';
 import 'package:paybar_app/screens/group/group_list_screen.dart';
 import 'package:paybar_app/screens/reminder/reminder_screen.dart';
 import 'package:paybar_app/services/auth_service.dart';
+import 'package:paybar_app/widgets/bottom_nav_bar.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -30,31 +31,9 @@ class _HomeScreenState extends State<HomeScreen> {
         index: _currentIndex,
         children: _screens,
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
+      bottomNavigationBar: PayBarNavBar(
+        currentIndex: _currentIndex,
         onDestinationSelected: (i) => setState(() => _currentIndex = i),
-        backgroundColor: AppColors.white,
-        indicatorColor: AppColors.primary.withValues(alpha: 0.12),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon:
-                Icon(Icons.home_rounded, color: AppColors.primary),
-            label: 'Beranda',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.group_outlined),
-            selectedIcon:
-                Icon(Icons.group_rounded, color: AppColors.primary),
-            label: 'Grup',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.notifications_outlined),
-            selectedIcon: Icon(Icons.notifications_rounded,
-                color: AppColors.primary),
-            label: 'Reminder',
-          ),
-        ],
       ),
     );
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:paybar_app/core/theme/app_colors.dart';
 import 'package:paybar_app/core/theme/app_typography.dart';
 import 'package:paybar_app/screens/group/group_list_screen.dart';
+import 'package:paybar_app/screens/notification/notification_inbox_screen.dart';
 import 'package:paybar_app/screens/reminder/reminder_screen.dart';
 import 'package:paybar_app/services/auth_service.dart';
 import 'package:paybar_app/widgets/bottom_nav_bar.dart';
@@ -24,6 +25,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // _BerandaTab(onLogout: AuthService().signOut),
     const GroupListScreen(),
     const ReminderScreen(),
+    const NotificationInboxScreen(),
   ];
 
   @override

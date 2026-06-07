@@ -446,7 +446,9 @@ class _ReminderCard extends StatelessWidget {
   });
 
   bool get _isOverdue =>
-      !reminder.isDone && reminder.dueDate.isBefore(DateTime.now());
+    !reminder.isDone && reminder.dueDate.isBefore(
+      DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day)
+    );
 
   Color get _accentColor {
     if (_isOverdue) return AppColors.negative;

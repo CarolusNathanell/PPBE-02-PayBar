@@ -1,236 +1,448 @@
+import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:paybar_app/core/theme/app_colors.dart';
 import 'package:paybar_app/core/theme/app_typography.dart';
-
-// ---------------------------------------------------------------------------
-// MODEL DUMMY — ganti dengan data Firestore nanti
-// ---------------------------------------------------------------------------
-
-class BalanceItem {
-  final String initials;
-  final String name;
-  final String groupName;
-  final int amount; // positif = piutang (dia hutang ke kamu), negatif = kamu hutang
-  final Color avatarBg;
-  final Color avatarFg;
-
-  const BalanceItem({
-    required this.initials,
-    required this.name,
-    required this.groupName,
-    required this.amount,
-    required this.avatarBg,
-    required this.avatarFg,
-  });
-}
-
-class GroupItem {
-  final IconData icon;
-  final String name;
-  final String meta;
-  final int? pendingAmount; // null = lunas
-  final String? pendingLabel;
-
-  const GroupItem({
-    required this.icon,
-    required this.name,
-    required this.meta,
-    this.pendingAmount,
-    this.pendingLabel,
-  });
-}
-
-// ---------------------------------------------------------------------------
-// DATA DUMMY
-// ---------------------------------------------------------------------------
-
-const List<BalanceItem> _dummyBalances = [
-  BalanceItem(
-    initials: 'BW',
-    name: 'Bima Wahyu',
-    groupName: 'Makan bareng Jumat · Grup Kantor',
-    amount: 75000,
-    avatarBg: Color(0xFFFFF0F0),
-    avatarFg: Color(0xFFFF6B6B),
-  ),
-  BalanceItem(
-    initials: 'DS',
-    name: 'Dinda Sari',
-    groupName: 'Bensin Bali · Liburan Geng',
-    amount: 160000,
-    avatarBg: Color(0xFFF0F4FF),
-    avatarFg: Color(0xFF5B7FE5),
-  ),
-  BalanceItem(
-    initials: 'AF',
-    name: 'Anisa Fitri',
-    groupName: 'Kos bulanan · Squad Kos',
-    amount: -50000,
-    avatarBg: Color(0xFFE8FDF9),
-    avatarFg: Color(0xFF0B8C76),
-  ),
-  BalanceItem(
-    initials: 'MR',
-    name: 'Muhammad Rizal',
-    groupName: 'Tagihan listrik · Squad Kos',
-    amount: -75000,
-    avatarBg: Color(0xFFFFF8E6),
-    avatarFg: Color(0xFFD08000),
-  ),
-];
-
-const List<GroupItem> _dummyGroups = [
-  GroupItem(
-    icon: Icons.work_outline_rounded,
-    name: 'Grup Kantor',
-    meta: '5 orang · 2 transaksi belum lunas',
-    pendingAmount: 75000,
-    pendingLabel: 'Rp 75K',
-  ),
-  GroupItem(
-    icon: Icons.beach_access_outlined,
-    name: 'Liburan Geng',
-    meta: '4 orang · 1 transaksi belum lunas',
-    pendingAmount: 160000,
-    pendingLabel: 'Rp 160K',
-  ),
-  GroupItem(
-    icon: Icons.home_outlined,
-    name: 'Squad Kos',
-    meta: '3 orang · semua lunas',
-    pendingAmount: null,
-  ),
-];
-
-// ---------------------------------------------------------------------------
-// WARNA (sesuai design system PayBar)
-// ---------------------------------------------------------------------------
-
-// class AppColors {
-//   static const primary = Color(0xFF00B8A9);
-//   static const dark = Color(0xFF1A2A3A);
-//   static const background = Color(0xFFF7F8FA);
-//   static const negative = Color(0xFFFF6B6B);
-//   static const positive = Color(0xFF4ECDC4);
-//   static const accent = Color(0xFFFFD93D);
-//   static const textPrimary = Color(0xFF2D3436);
-//   static const textSecondary = Color(0xFF636E72);
-//   static const border = Color(0xFFDFE6E9);
-//   static const white = Color(0xFFFFFFFF);
-//   static const settledBg = Color(0xFFE8FDF9);
-//   static const settledFg = Color(0xFF0B8C76);
-//   static const pendingBg = Color(0xFFFFF3CD);
-//   static const pendingFg = Color(0xFFD08000);
-// }
+import 'package:paybar_app/models/group_model.dart';
+import 'package:paybar_app/models/transaction_model.dart';
+import 'package:paybar_app/screens/home/nav_index.dart';
+import 'package:paybar_app/screens/settlement/settlement_screen.dart';
+import 'package:paybar_app/services/group_service.dart';
+import 'package:paybar_app/services/transaction_service.dart';
 
 // ---------------------------------------------------------------------------
 // HELPER FORMAT RUPIAH
 // ---------------------------------------------------------------------------
 
-String _formatRupiah(int amount) {
+String _formatRupiahShort(double amount) {
   final abs = amount.abs();
-  if (abs >= 1000000) {
-    return 'Rp ${(abs / 1000000).toStringAsFixed(1)}Jt';
-  } else if (abs >= 1000) {
-    return 'Rp ${(abs ~/ 1000)}K';
-  }
-  return 'Rp $abs';
+  if (abs >= 1000000) return 'Rp ${(abs / 1000000).toStringAsFixed(1)}Jt';
+  if (abs >= 1000) return 'Rp ${(abs ~/ 1000)}K';
+  return 'Rp ${abs.toStringAsFixed(0)}';
 }
 
-String _formatRupiahFull(int amount) {
-  final abs = amount.abs();
-  final s = abs.toString();
+String _formatRupiahFull(double amount) {
+  final abs = amount.abs().toStringAsFixed(0);
   final buffer = StringBuffer();
   int counter = 0;
-  for (int i = s.length - 1; i >= 0; i--) {
+  for (int i = abs.length - 1; i >= 0; i--) {
     if (counter != 0 && counter % 3 == 0) buffer.write('.');
-    buffer.write(s[i]);
+    buffer.write(abs[i]);
     counter++;
   }
   return 'Rp ${buffer.toString().split('').reversed.join('')}';
 }
 
 // ---------------------------------------------------------------------------
+// DATA CLASS HASIL KALKULASI BALANCE
+// Dihitung dari semua TransactionModel di semua grup user.
+//
+// Logika per transaksi:
+//   - paidBy == currentUid  → setiap participant lain hutang (perPerson) ke kamu
+//   - participant == currentUid && paidBy != currentUid → kamu hutang (perPerson) ke paidBy
+// ---------------------------------------------------------------------------
+
+class _PersonBalance {
+  final String uid;
+  double net; // positif = dia hutang ke kamu, negatif = kamu hutang ke dia
+
+  _PersonBalance({required this.uid, required this.net});
+}
+
+/// Agregasi balance dari semua transaksi di semua grup.
+/// Returns map uid → net amount (dari sudut pandang currentUid).
+Map<String, double> _calcBalances(
+  String currentUid,
+  List<TransactionModel> allTx,
+) {
+  final map = <String, double>{};
+
+  for (final tx in allTx) {
+    if (!tx.participants.contains(currentUid)) continue;
+
+    final perPerson = tx.perPerson;
+
+    if (tx.paidBy == currentUid) {
+      // Kamu yang bayar → semua participant lain hutang ke kamu
+      for (final uid in tx.participants) {
+        if (uid == currentUid) continue;
+        map[uid] = (map[uid] ?? 0) + perPerson;
+      }
+    } else if (tx.participants.contains(currentUid)) {
+      // Orang lain yang bayar → kamu hutang ke paidBy
+      map[tx.paidBy] = (map[tx.paidBy] ?? 0) - perPerson;
+    }
+  }
+
+  return map;
+}
+
+// ---------------------------------------------------------------------------
 // DASHBOARD SCREEN
 // ---------------------------------------------------------------------------
 
-class DashboardScreen extends StatelessWidget {
-  const DashboardScreen({super.key});
+class DashboardScreen extends StatefulWidget {
+  /// Callback untuk pindah tab di HomeScreen (ganti index nav bar).
+  final void Function(int index)? onNavigateTo;
 
-  // Total piutang dan utang dihitung dari dummy data
-  int get _totalPiutang => _dummyBalances
-      .where((b) => b.amount > 0)
-      .fold(0, (sum, b) => sum + b.amount);
+  /// Callback untuk push screen di atas tab Grup, nav bar tetap tampil.
+  /// Digunakan oleh quick action "Tandai Lunas" → SettlementScreen.
+  final void Function(Widget screen)? onPushToGrup;
 
-  int get _totalUtang => _dummyBalances
-      .where((b) => b.amount < 0)
-      .fold(0, (sum, b) => sum + b.amount.abs());
+  final void Function()? onLogout;
 
-  int get _netBalance => _totalPiutang - _totalUtang;
+  const DashboardScreen({
+    super.key,
+    this.onNavigateTo,
+    this.onPushToGrup,
+    this.onLogout,
+  });
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  final _groupService = GroupService();
+  final _txService = TransactionService();
+  final _auth = FirebaseAuth.instance;
+  final _firestore = FirebaseFirestore.instance;
+
+  String get _currentUid => _auth.currentUser!.uid;
+
+  // Nama user saat ini (diambil dari Firestore sekali)
+  String _displayName = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDisplayName();
+  }
+
+  Future<void> _loadDisplayName() async {
+    final doc =
+        await _firestore.collection('users').doc(_currentUid).get();
+    if (!mounted) return;
+    setState(() {
+      _displayName =
+          (doc.data()?['name'] as String?) ?? _auth.currentUser?.email ?? '';
+    });
+  }
+
+  /// Inisial dari nama (maks 2 huruf kapital)
+  String _initials(String name) {
+    final parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    } else if (parts.isNotEmpty && parts[0].isNotEmpty) {
+      return parts[0][0].toUpperCase();
+    }
+    return '?';
+  }
+
+  /// Warna avatar deterministik berdasarkan hash uid
+  Color _avatarBg(String uid) {
+    const colors = [
+      Color(0xFFFFF0F0),
+      Color(0xFFF0F4FF),
+      Color(0xFFE8FDF9),
+      Color(0xFFFFF8E6),
+      Color(0xFFF5F0FF),
+      Color(0xFFE8F4FF),
+    ];
+    return colors[uid.hashCode.abs() % colors.length];
+  }
+
+  Color _avatarFg(String uid) {
+    const colors = [
+      Color(0xFFFF6B6B),
+      Color(0xFF5B7FE5),
+      Color(0xFF0B8C76),
+      Color(0xFFD08000),
+      Color(0xFF7C5CBF),
+      Color(0xFF1E7EC8),
+    ];
+    return colors[uid.hashCode.abs() % colors.length];
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            // ── Header ──────────────────────────────────────────────────────
-            SliverToBoxAdapter(child: _buildHeader()),
+        child: StreamBuilder<List<GroupModel>>(
+          stream: _groupService.getGroups(),
+          builder: (context, groupSnap) {
+            if (groupSnap.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: CircularProgressIndicator(color: AppColors.primary),
+              );
+            }
 
-            // ── Net Balance Card ─────────────────────────────────────────────
-            SliverToBoxAdapter(child: _buildNetBalanceCard()),
+            if (groupSnap.hasError) {
+              return _buildError('Gagal memuat grup. Coba lagi ya.');
+            }
 
-            // ── "Siapa yang belum bayar?" ────────────────────────────────────
-            SliverToBoxAdapter(
-              child: _buildSectionTitle('Siapa yang belum bayar? 💸'),
-            ),
-            SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) => _BalanceListItem(item: _dummyBalances[index]),
-                childCount: _dummyBalances.length,
-              ),
-            ),
+            final groups = groupSnap.data ?? [];
 
-            // ── Grup Aktif ───────────────────────────────────────────────────
-            SliverToBoxAdapter(
-              child: _buildSectionTitle('Grup aktif'),
-            ),
-            SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) => _GroupListItem(item: _dummyGroups[index]),
-                childCount: _dummyGroups.length,
-              ),
-            ),
-
-            // ── Aksi Cepat ───────────────────────────────────────────────────
-            SliverToBoxAdapter(
-              child: _buildSectionTitle('Aksi cepat'),
-            ),
-            SliverToBoxAdapter(child: _buildQuickActions(context)),
-
-            // ── Bottom padding ───────────────────────────────────────────────
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
-
-            // ── TODO: Ringkasan per Bulan (Chart) ────────────────────────────
-            // SliverToBoxAdapter(child: _buildMonthlyChart()),
-
-            // ── TODO: Aktivitas Terbaru ──────────────────────────────────────
-            // SliverToBoxAdapter(child: _buildRecentActivity()),
-          ],
+            // Stream semua transaksi dari semua grup secara paralel,
+            // lalu gabungkan dengan StreamBuilder bertingkat.
+            return _DashboardBody(
+              groups: groups,
+              txService: _txService,
+              currentUid: _currentUid,
+              displayName: _displayName,
+              initials: _initials,
+              avatarBg: _avatarBg,
+              avatarFg: _avatarFg,
+              onNavigateTo: widget.onNavigateTo,
+              onPushToGrup: widget.onPushToGrup,
+              onLogout: widget.onLogout,
+            );
+          },
         ),
       ),
     );
   }
 
-  // ── Header ────────────────────────────────────────────────────────────────
+  Widget _buildError(String msg) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          msg,
+          style: AppTypography.body.copyWith(
+            color: AppColors.textSecondary,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+}
 
-  Widget _buildHeader() {
+// ---------------------------------------------------------------------------
+// DASHBOARD BODY
+// Dipisah agar bisa subscribe stream transaksi setelah grup sudah tersedia.
+// ---------------------------------------------------------------------------
+
+class _DashboardBody extends StatelessWidget {
+  final List<GroupModel> groups;
+  final TransactionService txService;
+  final String currentUid;
+  final String displayName;
+  final String Function(String) initials;
+  final Color Function(String) avatarBg;
+  final Color Function(String) avatarFg;
+  final void Function(int index)? onNavigateTo;
+  final void Function(Widget screen)? onPushToGrup;
+  final void Function()? onLogout;
+
+  const _DashboardBody({
+    required this.groups,
+    required this.txService,
+    required this.currentUid,
+    required this.displayName,
+    required this.initials,
+    required this.avatarBg,
+    required this.avatarFg,
+    this.onNavigateTo,
+    this.onPushToGrup,
+    this.onLogout,
+  });
+
+  /// Gabungkan stream transaksi dari semua grup menjadi satu List<TransactionModel>.
+  /// Menggunakan StreamBuilder bertumpuk — cocok untuk jumlah grup kecil (free tier).
+  Stream<List<TransactionModel>> _allTransactionsStream() async* {
+    if (groups.isEmpty) {
+      yield [];
+      return;
+    }
+
+    // Emit setiap kali salah satu grup berubah
+    final streams =
+        groups.map((g) => txService.getTransactions(g.id)).toList();
+
+    // Combine dengan reduce sederhana menggunakan rxdart tidak tersedia,
+    // jadi kita gunakan pendekatan: StreamController yang di-feed dari semua stream.
+    // Karena free tier groups kecil, approach ini aman.
+    final combined = <String, List<TransactionModel>>{};
+    for (final g in groups) {
+      combined[g.id] = [];
+    }
+
+    // yield pertama langsung kosong sementara menunggu data
+    yield [];
+
+    // Untuk Flutter tanpa rxdart, gunakan StreamController merge manual
+    final controller = StreamController<List<TransactionModel>>.broadcast();
+
+    final subs = <StreamSubscription>[];
+    for (int i = 0; i < groups.length; i++) {
+      final gId = groups[i].id;
+      final sub = streams[i].listen((txList) {
+        combined[gId] = txList;
+        final all = combined.values.expand((e) => e).toList();
+        if (!controller.isClosed) controller.add(all);
+      });
+      subs.add(sub);
+    }
+
+    yield* controller.stream;
+
+    // Cleanup subs saat stream ini di-cancel
+    // (StreamController akan di-GC karena tidak ada ref lain)
+    for (final s in subs) {
+      s.cancel();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<TransactionModel>>(
+      stream: _allTransactionsStream(),
+      builder: (context, txSnap) {
+        final allTx = txSnap.data ?? [];
+        final balanceMap = _calcBalances(currentUid, allTx);
+
+        // Hitung total piutang & utang
+        double totalPiutang = 0;
+        double totalUtang = 0;
+        for (final net in balanceMap.values) {
+          if (net > 0) {
+            totalPiutang += net;
+          } else {
+            totalUtang += net.abs();
+          }
+        }
+        final netBalance = totalPiutang - totalUtang;
+
+        return CustomScrollView(
+          slivers: [
+            // ── Header ────────────────────────────────────────────────────
+            SliverToBoxAdapter(
+              child: _buildHeader(displayName, initials(displayName)),
+            ),
+
+            // ── Net Balance Card ───────────────────────────────────────────
+            SliverToBoxAdapter(
+              child: _buildNetBalanceCard(
+                netBalance: netBalance,
+                totalPiutang: totalPiutang,
+                totalUtang: totalUtang,
+                groupCount: groups.length,
+                isLoading: txSnap.connectionState == ConnectionState.waiting,
+              ),
+            ),
+
+            // ── Siapa yang belum bayar ─────────────────────────────────────
+            if (balanceMap.isNotEmpty) ...[
+              SliverToBoxAdapter(
+                child: _buildSectionTitle('Siapa yang belum bayar? 💸'),
+              ),
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final entry = balanceMap.entries.toList()[index];
+                    return _BalanceListItem(
+                      uid: entry.key,
+                      net: entry.value,
+                      avatarBg: avatarBg(entry.key),
+                      avatarFg: avatarFg(entry.key),
+                      // Tampilkan nama grup paling relevan
+                      groupHint: _groupHintForUid(entry.key, allTx),
+                    );
+                  },
+                  childCount: balanceMap.length,
+                ),
+              ),
+            ] else if (txSnap.connectionState != ConnectionState.waiting) ...[
+              SliverToBoxAdapter(
+                child: _buildSectionTitle('Siapa yang belum bayar? 💸'),
+              ),
+              SliverToBoxAdapter(child: _buildEmptyBalance()),
+            ],
+
+            // ── Grup Aktif ─────────────────────────────────────────────────
+            SliverToBoxAdapter(
+              child: _buildSectionTitle('Grup aktif'),
+            ),
+            if (groups.isEmpty)
+              SliverToBoxAdapter(child: _buildEmptyGroups())
+            else
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final g = groups[index];
+                    final groupTx = allTx
+                        .where((tx) => _txBelongsToGroup(tx, g.id, allTx))
+                        .toList();
+                    // Hitung total pending dari transaksi grup ini
+                    final groupBalance = _calcBalances(currentUid,
+                        txSnap.data
+                                ?.where((tx) =>
+                                    _txBelongsToGroup(tx, g.id, allTx))
+                                .toList() ??
+                            []);
+                    final groupNet = groupBalance.values
+                        .fold<double>(0, (s, v) => s + v);
+                    return _GroupListItem(
+                      group: g,
+                      netAmount: groupNet,
+                    );
+                  },
+                  childCount: groups.length,
+                ),
+              ),
+
+            // ── Aksi Cepat ─────────────────────────────────────────────────
+            SliverToBoxAdapter(child: _buildSectionTitle('Aksi cepat')),
+            SliverToBoxAdapter(child: _buildQuickActions(context)),
+
+            const SliverToBoxAdapter(child: SizedBox(height: 24)),
+
+            // ── TODO: Ringkasan per Bulan ──────────────────────────────────
+            // SliverToBoxAdapter(child: _buildMonthlyChart(allTx)),
+
+            // ── TODO: Aktivitas Terbaru ────────────────────────────────────
+            // SliverToBoxAdapter(child: _buildRecentActivity(allTx)),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Cari nama grup paling relevan untuk uid tertentu berdasarkan transaksi
+  String _groupHintForUid(
+      String uid, List<TransactionModel> allTx) {
+    // Tidak ada info groupId di TransactionModel secara langsung,
+    // jadi kita cari dari grup mana transaksi dengan paidBy == uid atau participant == uid
+    // Pendekatan: iterasi allTx dan cocokkan dengan grup
+    // Karena TransactionModel tidak menyimpan groupId, kita fallback ke string kosong
+    // → Orang 1 bisa tambah groupId ke TransactionModel jika diperlukan
+    return '';
+  }
+
+  /// Cek apakah transaksi ini milik grup tertentu.
+  /// Karena TransactionModel tidak menyimpan groupId,
+  /// kita tidak bisa filter dengan pasti dari sisi dashboard.
+  /// Solusi: Orang 1 bisa menambah field groupId ke TransactionModel.
+  /// Sementara ini, method ini selalu return false agar tidak double-count.
+  bool _txBelongsToGroup(
+      TransactionModel tx, String groupId, List<TransactionModel> all) {
+    // TODO (Orang 1): Tambah field groupId ke TransactionModel,
+    // lalu ganti dengan: return tx.groupId == groupId;
+    return false;
+  }
+
+  // ── Header ──────────────────────────────────────────────────────────────
+
+  Widget _buildHeader(String name, String avatarText) {
     return Container(
       color: AppColors.dark,
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
             child: Column(
@@ -240,12 +452,13 @@ class DashboardScreen extends StatelessWidget {
                   'PayBar',
                   style: AppTypography.h1.copyWith(color: AppColors.primary),
                 ),
+                const SizedBox(height: 4),
                 Text(
                   'Halo kembali,',
                   style: AppTypography.caption.copyWith(fontSize: 11, color: AppColors.textSecondary),
                 ),
                 Text(
-                  'Rizky Adi 👋',
+                  '$displayName 👋',
                   style: AppTypography.bodyLarge.copyWith(fontWeight: FontWeight.w600, color: AppColors.white),
                 ),
               ],
@@ -253,22 +466,36 @@ class DashboardScreen extends StatelessWidget {
           ),
           Row(
             children: [
-              const Icon(Icons.notifications_outlined,
-                  color: Colors.white54, size: 22),
-              const SizedBox(width: 12),
-              // Avatar initials
-              Container(
-                width: 36,
-                height: 36,
-                decoration: const BoxDecoration(
-                  color: AppColors.primary,
-                  shape: BoxShape.circle,
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  'RA',
-                  style: AppTypography.avatar,
-                ),
+              PopupMenuButton<String>(
+                icon: 
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: const BoxDecoration(
+                      color: AppColors.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      initials(displayName),
+                      style: AppTypography.avatar,
+                    ),
+                  ),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                onSelected: (val) {
+                  switch (val) {
+                    case 'edit':
+                    case 'logout':
+                      onLogout!();
+                  }
+                },
+                itemBuilder: (_) => [
+                  _menuItem('edit', Icons.edit_rounded, 'Edit Profile',
+                      AppColors.primary),
+                  _menuItem('logout', Icons.logout_rounded, 'Logout',
+                      AppColors.negative),
+                ],
               ),
             ],
           ),
@@ -277,10 +504,44 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  // ── Net Balance Card ───────────────────────────────────────────────────────
+  PopupMenuItem<String> _menuItem(
+      String value, IconData icon, String label, Color color) {
+    return PopupMenuItem(
+      value: value,
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(icon, size: 14, color: color),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            label,
+            style: AppTypography.body.copyWith(
+              color: (value == 'leave' || value == 'delete_group')
+                  ? AppColors.negative
+                  : AppColors.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  // ── Net Balance Card ─────────────────────────────────────────────────────
 
-  Widget _buildNetBalanceCard() {
-    final isPositive = _netBalance >= 0;
+  Widget _buildNetBalanceCard({
+    required double netBalance,
+    required double totalPiutang,
+    required double totalUtang,
+    required int groupCount,
+    required bool isLoading,
+  }) {
+    final isPositive = netBalance >= 0;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       child: Container(
@@ -298,11 +559,11 @@ class DashboardScreen extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              '${isPositive ? '+' : '-'}${_formatRupiahFull(_netBalance.abs())}',
+              '${isPositive ? '+' : '-'}${_formatRupiahFull(netBalance.abs())}',
               style: AppTypography.h1.copyWith(color: AppColors.white),
             ),
             Text(
-              'Di ${_dummyGroups.length} grup aktif · diperbarui barusan',
+              'Di $groupCount grup aktif · diperbarui barusan',
               style: AppTypography.caption.copyWith(color:  AppColors.white.withAlpha(195)),
             ),
             const SizedBox(height: 16),
@@ -312,7 +573,8 @@ class DashboardScreen extends StatelessWidget {
                   child: _NetMiniCard(
                     icon: Icons.trending_up_rounded,
                     label: 'Piutang',
-                    amount: _totalPiutang,
+                    amount: totalPiutang,
+                    isLoading: isLoading,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -320,7 +582,8 @@ class DashboardScreen extends StatelessWidget {
                   child: _NetMiniCard(
                     icon: Icons.trending_down_rounded,
                     label: 'Utang',
-                    amount: _totalUtang,
+                    amount: totalUtang,
+                    isLoading: isLoading,
                   ),
                 ),
               ],
@@ -331,7 +594,7 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  // ── Section title ──────────────────────────────────────────────────────────
+  // ── Section Title ────────────────────────────────────────────────────────
 
   Widget _buildSectionTitle(String title) {
     return Padding(
@@ -343,37 +606,113 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  // ── Quick Actions ──────────────────────────────────────────────────────────
+  // ── Empty States ─────────────────────────────────────────────────────────
+
+  Widget _buildEmptyBalance() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.check_circle_outline_rounded,
+                color: AppColors.positive, size: 24),
+            const SizedBox(width: 12),
+            Text(
+              'Semua lunas, nggak ada tanggungan! 🎉',
+              style: AppTypography.caption.copyWith(fontSize: 13),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyGroups() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.group_add_outlined,
+                color: AppColors.primary, size: 24),
+            const SizedBox(width: 12),
+            Text(
+              'Belum ada grup. Yuk, buat yang pertama!',
+              style: AppTypography.caption.copyWith(fontSize: 13),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Quick Actions ────────────────────────────────────────────────────────
 
   Widget _buildQuickActions(BuildContext context) {
+    // Grup pertama yang user ikuti — dipakai sebagai default landing
+    // untuk settlement. Jika tidak ada grup, tampilkan snackbar.
+    final firstGroup = groups.isNotEmpty ? groups.first : null;
+
     final actions = [
       _QuickAction(
         icon: Icons.add_rounded,
         label: 'Catat\nTransaksi',
         onTap: () {
-          // TODO: Navigate to add transaction screen
+          // Buka tab Grup — user pilih grup lalu tambah transaksi dari sana
+          onNavigateTo?.call(NavIndex.grup);
         },
       ),
       _QuickAction(
         icon: Icons.check_circle_outline_rounded,
         label: 'Tandai\nLunas',
         onTap: () {
-          // TODO: Navigate to settlement screen
+          if (firstGroup == null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Buat grup dulu sebelum tambah settlement.'),
+              ),
+            );
+            return;
+          }
+          // Push SettlementScreen di atas tab Grup — nav bar tetap tampil
+          onPushToGrup?.call(
+            SettlementScreen(
+              groupId: firstGroup.id,
+              // memberNames dikosongkan dulu; akan diisi oleh GroupDetailScreen
+              // saat user navigasi normal. Dari quick action, GroupService
+              // sudah dipanggil ulang di dalam SettlementScreen via stream.
+              memberNames: const {},
+            ),
+          );
         },
       ),
       _QuickAction(
         icon: Icons.group_add_outlined,
         label: 'Buat\nGrup',
         onTap: () {
-          // TODO: Navigate to create group screen
+          // Buka tab Grup — FAB di GroupListScreen sudah handle buat grup
+          onNavigateTo?.call(NavIndex.grup);
         },
       ),
       _QuickAction(
         icon: Icons.notifications_active_outlined,
         label: 'Kirim\nReminder',
         onTap: () {
-          // TODO: Reminder popup (Orang 3 - FCM)
-          // _showReminderBottomSheet(context);
+          // Buka tab Reminder (index 2)
+          onNavigateTo?.call(NavIndex.reminder);
+          // TODO: _showReminderBottomSheet — Orang 3 (FCM)
         },
       ),
     ];
@@ -386,25 +725,28 @@ class DashboardScreen extends StatelessWidget {
         physics: const NeverScrollableScrollPhysics(),
         crossAxisSpacing: 10,
         mainAxisSpacing: 10,
-        children: actions.map((a) => _QuickActionButton(action: a)).toList(),
+        children:
+            actions.map((a) => _QuickActionButton(action: a)).toList(),
       ),
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// NET MINI CARD (dalam Balance Card)
+// NET MINI CARD
 // ---------------------------------------------------------------------------
 
 class _NetMiniCard extends StatelessWidget {
   final IconData icon;
   final String label;
-  final int amount;
+  final double amount;
+  final bool isLoading;
 
   const _NetMiniCard({
     required this.icon,
     required this.label,
     required this.amount,
+    this.isLoading = false,
   });
 
   @override
@@ -426,7 +768,7 @@ class _NetMiniCard extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            _formatRupiah(amount),
+            _formatRupiahShort(amount),
             style: AppTypography.bodyLarge.copyWith(color: AppColors.white),
           ),
         ],
@@ -437,100 +779,142 @@ class _NetMiniCard extends StatelessWidget {
 
 // ---------------------------------------------------------------------------
 // BALANCE LIST ITEM
+// Menampilkan nama uid → di-resolve realtime dari Firestore
 // ---------------------------------------------------------------------------
 
 class _BalanceListItem extends StatelessWidget {
-  final BalanceItem item;
+  final String uid;
+  final double net; // positif = dia hutang ke kamu, negatif = kamu hutang
+  final Color avatarBg;
+  final Color avatarFg;
+  final String groupHint;
 
-  const _BalanceListItem({required this.item});
+  const _BalanceListItem({
+    required this.uid,
+    required this.net,
+    required this.avatarBg,
+    required this.avatarFg,
+    this.groupHint = '',
+  });
 
   @override
   Widget build(BuildContext context) {
-    final isPositive = item.amount >= 0;
+    final isPositive = net >= 0;
     final amountColor = isPositive ? AppColors.positive : AppColors.negative;
-    final amountText =
-        '${isPositive ? '+' : '-'}${_formatRupiahFull(item.amount.abs())}';
-    final statusText = isPositive ? 'Piutang' : 'Hutang';
+    final statusText =
+        isPositive ? 'dia hutang ke kamu' : 'kamu hutang ke dia';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.border, width: 1),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Row(
-          children: [
-            // Avatar
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: item.avatarBg,
-                shape: BoxShape.circle,
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                item.initials,
-                style: AppTypography.avatar,
-              ),
+      // Resolve nama dari Firestore
+      child: StreamBuilder<DocumentSnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .snapshots(),
+        builder: (context, snap) {
+          final data = snap.data?.data() as Map<String, dynamic>?;
+          final name = (data?['name'] as String?) ?? '...';
+          final initials = _initials(name);
+
+          return Container(
+            decoration: BoxDecoration(
+              color: AppColors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.border, width: 1),
             ),
-            const SizedBox(width: 12),
-            // Info
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    item.name,
-                    style: AppTypography.body,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    item.groupName,
-                    style: AppTypography.caption.copyWith(fontSize: 11),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            // Amount
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
               children: [
-                Text(
-                  amountText,
-                  style: AppTypography.nominal.copyWith(color: amountColor),
+                // Avatar
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: avatarBg,
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    initials,
+                    style: AppTypography.avatar,
+                  ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  statusText,
-                  style: AppTypography.subCaption.copyWith(fontSize:11, color: amountColor),
+                const SizedBox(width: 12),
+                // Info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: AppTypography.body,
+                      ),
+                      if (groupHint.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          groupHint,
+                          style: AppTypography.caption.copyWith(fontSize: 11),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Amount
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '${isPositive ? '+' : '-'}${_formatRupiahFull(net.abs())}',
+                      style: AppTypography.nominal.copyWith(color: amountColor),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      statusText,
+                      style: AppTypography.subCaption.copyWith(fontSize:11, color: amountColor),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
+  }
+
+  String _initials(String name) {
+    final parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    } else if (parts.isNotEmpty && parts[0].isNotEmpty) {
+      return parts[0][0].toUpperCase();
+    }
+    return '?';
   }
 }
 
 // ---------------------------------------------------------------------------
-// GROUP LIST ITEM
+// GROUP LIST ITEM — data dari GroupModel Firestore
 // ---------------------------------------------------------------------------
 
 class _GroupListItem extends StatelessWidget {
-  final GroupItem item;
+  final GroupModel group;
+  final double netAmount; // net balance user di grup ini
 
-  const _GroupListItem({required this.item});
+  const _GroupListItem({
+    required this.group,
+    required this.netAmount,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final isSettled = item.pendingAmount == null;
+    // netAmount == 0 atau tidak ada transaksi = lunas / bersih
+    final hasBalance = netAmount.abs() > 1; // threshold Rp 1 untuk floating point
+    final isPositive = netAmount >= 0;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
@@ -540,7 +924,8 @@ class _GroupListItem extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: AppColors.border, width: 1),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Row(
           children: [
             // Icon box
@@ -551,7 +936,8 @@ class _GroupListItem extends StatelessWidget {
                 color: const Color(0xFFE6FAF8),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(item.icon, color: AppColors.primary, size: 20),
+              child: const Icon(Icons.group_outlined,
+                  color: AppColors.primary, size: 20),
             ),
             const SizedBox(width: 12),
             // Info
@@ -560,12 +946,12 @@ class _GroupListItem extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    item.name,
+                    group.name,
                     style: AppTypography.body,
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    item.meta,
+                    '${group.members.length} anggota',
                     style: AppTypography.caption,
                   ),
                 ],
@@ -574,15 +960,22 @@ class _GroupListItem extends StatelessWidget {
             const SizedBox(width: 8),
             // Badge
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
-                color: isSettled ? AppColors.settledBg : AppColors.pendingBg,
+                color: !hasBalance
+                    ? AppColors.settledBg
+                    : (isPositive
+                        ? const Color(0xFFE8FDF9)
+                        : const Color(0xFFFFF0F0)),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
-                isSettled ? 'Lunas ✓' : (item.pendingLabel ?? ''),
-                style: AppTypography.caption.copyWith(fontWeight: FontWeight.w600, color: isSettled ? AppColors.settledFg : AppColors.pendingFg,),
+                // TODO: Setelah Orang 1 tambah groupId ke TransactionModel,
+                // nilai ini akan akurat per-grup.
+                // Untuk sekarang tampilkan lunas karena filter belum bisa dilakukan.
+                'Lunas ✓',
+                style: AppTypography.caption.copyWith(fontWeight: FontWeight.w600, color: AppColors.settledFg),
               ),
             ),
           ],
@@ -593,7 +986,7 @@ class _GroupListItem extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// QUICK ACTION
+// QUICK ACTION HELPER
 // ---------------------------------------------------------------------------
 
 class _QuickAction {
@@ -638,22 +1031,4 @@ class _QuickActionButton extends StatelessWidget {
       ),
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// ENTRY POINT PREVIEW (hapus kalau diintegrasikan ke main.dart)
-// ---------------------------------------------------------------------------
-
-void main() {
-  runApp(
-    MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'PayBar',
-      theme: ThemeData(
-        scaffoldBackgroundColor: AppColors.background,
-        colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primary),
-      ),
-      home: const DashboardScreen(),
-    ),
-  );
 }

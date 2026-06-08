@@ -244,25 +244,46 @@ class NotificationService {
     required String body,
     required DateTime scheduledDate,
   }) async {
-    if (scheduledDate.isBefore(DateTime.now())) return;
-
     final DateTime notifTime = DateTime(
       scheduledDate.year,
       scheduledDate.month,
       scheduledDate.day,
-      7, // jam 7 pagi di hari due date
-      0,
+      7,
+      1,
     );
 
-    if (notifTime.isBefore(DateTime.now())) return;
+    if (notifTime.isBefore(DateTime.now())) {
+      final tomorrow = DateTime(
+        scheduledDate.year,
+        scheduledDate.month,
+        scheduledDate.day + 1,
+        7,
+        1,
+      );
+      return scheduleReminderNotification(
+        id: id,
+        title: title,
+        body: body,
+        scheduledDate: tomorrow,
+      );
+    }
 
     final tz.TZDateTime tzTime = tz.TZDateTime.from(notifTime, tz.local);
+
+    final tz.TZDateTime scheduledTz = tz.TZDateTime(
+      tz.local,
+      tzTime.year,
+      tzTime.month,
+      tzTime.day,
+      tzTime.hour,
+      tzTime.minute,
+    );
 
     await _local.zonedSchedule(
       id: id,
       title: title,
       body: body,
-      scheduledDate: tzTime,
+      scheduledDate: scheduledTz,
       notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           _channelReminder,
@@ -271,13 +292,29 @@ class NotificationService {
           priority: Priority.high,
           icon: '@mipmap/ic_launcher',
           styleInformation: BigTextStyleInformation(body),
+          channelShowBadge: true,
+          ongoing: false,
+          autoCancel: true,
         ),
       ),
+
+      
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      
+      payload: 'reminder_$id',
     );
 
-    debugPrint('[Reminder Scheduled] "$title" → $tzTime');
+    debugPrint('[Reminder Scheduled] ✅ Success! "$title" → $scheduledTz');
+    debugPrint('[Reminder Scheduled] Current time: ${DateTime.now()}');
+
+    // Cek pending notifications
+    final pending = await _local.pendingNotificationRequests();
+    debugPrint('📋 Total pending: ${pending.length}');
+    for (var p in pending) {
+      debugPrint('  - ID: ${p.id}, Title: ${p.title}');
+    }
   }
+
 
   Future<void> cancelReminderNotification(int id) async {
     await _local.cancel(id: id);
@@ -286,6 +323,28 @@ class NotificationService {
   Future<void> cancelAllReminders() async {
     await _local.cancelAll();
   }
+
+  // Tambahkan method ini untuk testing (letakkan setelah scheduleReminderNotification)
+Future<void> testReminderNow() async {
+  // Test dengan delay 10 detik
+  final testTime = DateTime.now().add(Duration(seconds: 10));
+  
+  await scheduleReminderNotification(
+    id: 999999,
+    title: '🔔 TEST REMINDER',
+    body: 'Notifikasi reminder berhasil! Waktu: ${DateTime.now()}',
+    scheduledDate: testTime,
+  );
+  
+  debugPrint('⏰ Test reminder scheduled for: $testTime');
+  
+  // Cek pending notifications
+  final pending = await _local.pendingNotificationRequests();
+  debugPrint('📋 Total pending notifications: ${pending.length}');
+  for (var p in pending) {
+    debugPrint('  - ID: ${p.id}, Title: ${p.title}');
+  }
+}
 
   Stream<List<NotificationModel>> getNotifications() {
     final String? uid = FirebaseAuth.instance.currentUser?.uid;

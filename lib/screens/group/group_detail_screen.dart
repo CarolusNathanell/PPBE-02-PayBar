@@ -9,6 +9,7 @@ import 'package:paybar_app/services/currency_service.dart';
 import 'package:paybar_app/services/group_service.dart';
 import 'package:paybar_app/services/transaction_service.dart';
 import 'package:paybar_app/screens/transaction/transaction_screen.dart';
+import 'package:paybar_app/screens/settlement/settlement_screen.dart';
 
 class GroupDetailScreen extends StatefulWidget {
   final String groupId;
@@ -46,6 +47,18 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
           memberNames: _memberNames,
           currentUserUid: FirebaseAuth.instance.currentUser!.uid,
           existing: existing,
+        ),
+      ),
+    );
+  }
+
+  void _openSettlementScreen(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SettlementScreen(
+          groupId: widget.groupId,
+          memberNames: _memberNames,
         ),
       ),
     );
@@ -317,6 +330,27 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
           ),
           body: CustomScrollView(
             slivers: [
+              // Tombol Pelunasan
+              SliverToBoxAdapter(
+                child: Container(
+                  width: double.infinity,
+                  color: AppColors.white,
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: ElevatedButton.icon(
+                    onPressed: () => _openSettlementScreen(context),
+                    icon: const Icon(Icons.handshake_rounded, size: 18),
+                    label: const Text('Pelunasan'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.positive,
+                      foregroundColor: AppColors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ),
+              ),
+
               // Anggota
               SliverToBoxAdapter(
                 child: _MembersSection(

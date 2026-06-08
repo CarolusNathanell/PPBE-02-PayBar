@@ -6,6 +6,7 @@ import 'package:paybar_app/core/theme/app_colors.dart';
 import 'package:paybar_app/core/theme/app_typography.dart';
 import 'package:paybar_app/models/group_model.dart';
 import 'package:paybar_app/models/transaction_model.dart';
+import 'package:paybar_app/screens/group/group_detail_screen.dart';
 import 'package:paybar_app/screens/home/nav_index.dart';
 import 'package:paybar_app/screens/settlement/settlement_screen.dart';
 import 'package:paybar_app/services/group_service.dart';
@@ -375,36 +376,35 @@ class _DashboardBody extends StatelessWidget {
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
                     final g = groups[index];
-                    final groupTx = allTx
-                        .where((tx) => _txBelongsToGroup(tx, g.id, allTx))
+                    // Filter transaksi milik grup ini menggunakan groupId
+                    final groupTx = (txSnap.data ?? [])
+                        .where((tx) => _txBelongsToGroup(tx, g.id))
                         .toList();
-                    // Hitung total pending dari transaksi grup ini
-                    final groupBalance = _calcBalances(currentUid,
-                        txSnap.data
-                                ?.where((tx) =>
-                                    _txBelongsToGroup(tx, g.id, allTx))
-                                .toList() ??
-                            []);
+                    final groupBalance =
+                        _calcBalances(currentUid, groupTx);
                     final groupNet = groupBalance.values
                         .fold<double>(0, (s, v) => s + v);
                     return _GroupListItem(
                       group: g,
                       netAmount: groupNet,
+                      onTap: () => onPushToGrup?.call(
+                        GroupDetailScreen(groupId: g.id),
+                      ),
                     );
                   },
                   childCount: groups.length,
                 ),
               ),
-
+ 
             // ── Aksi Cepat ─────────────────────────────────────────────────
             SliverToBoxAdapter(child: _buildSectionTitle('Aksi cepat')),
             SliverToBoxAdapter(child: _buildQuickActions(context)),
-
+ 
             const SliverToBoxAdapter(child: SizedBox(height: 24)),
-
+ 
             // ── TODO: Ringkasan per Bulan ──────────────────────────────────
             // SliverToBoxAdapter(child: _buildMonthlyChart(allTx)),
-
+ 
             // ── TODO: Aktivitas Terbaru ────────────────────────────────────
             // SliverToBoxAdapter(child: _buildRecentActivity(allTx)),
           ],
@@ -414,26 +414,22 @@ class _DashboardBody extends StatelessWidget {
   }
 
   /// Cari nama grup paling relevan untuk uid tertentu berdasarkan transaksi
-  String _groupHintForUid(
-      String uid, List<TransactionModel> allTx) {
-    // Tidak ada info groupId di TransactionModel secara langsung,
-    // jadi kita cari dari grup mana transaksi dengan paidBy == uid atau participant == uid
-    // Pendekatan: iterasi allTx dan cocokkan dengan grup
-    // Karena TransactionModel tidak menyimpan groupId, kita fallback ke string kosong
-    // → Orang 1 bisa tambah groupId ke TransactionModel jika diperlukan
+  String _groupHintForUid(String uid, List<TransactionModel> allTx) {
+    for (final tx in allTx) {
+      if (!tx.participants.contains(uid)) continue;
+      if (!tx.participants.contains(currentUid) && tx.paidBy != currentUid) {
+        continue;
+      }
+      // Cari nama grup dari list groups
+      final match = groups.where((g) => g.id == tx.groupId).firstOrNull;
+      if (match != null) return match.name;
+    }
     return '';
   }
-
-  /// Cek apakah transaksi ini milik grup tertentu.
-  /// Karena TransactionModel tidak menyimpan groupId,
-  /// kita tidak bisa filter dengan pasti dari sisi dashboard.
-  /// Solusi: Orang 1 bisa menambah field groupId ke TransactionModel.
-  /// Sementara ini, method ini selalu return false agar tidak double-count.
-  bool _txBelongsToGroup(
-      TransactionModel tx, String groupId, List<TransactionModel> all) {
-    // TODO (Orang 1): Tambah field groupId ke TransactionModel,
-    // lalu ganti dengan: return tx.groupId == groupId;
-    return false;
+ 
+  /// Cek apakah transaksi ini milik grup tertentu — sekarang pakai groupId.
+  bool _txBelongsToGroup(TransactionModel tx, String groupId) {
+    return tx.groupId == groupId;
   }
 
   // ── Header ──────────────────────────────────────────────────────────────
@@ -670,13 +666,12 @@ class _DashboardBody extends StatelessWidget {
         icon: Icons.add_rounded,
         label: 'Catat\nTransaksi',
         onTap: () {
-          // Buka tab Grup — user pilih grup lalu tambah transaksi dari sana
           onNavigateTo?.call(NavIndex.grup);
         },
       ),
       _QuickAction(
         icon: Icons.check_circle_outline_rounded,
-        label: 'Tandai\nLunas',
+        label: 'Catat\nTransfer',
         onTap: () {
           if (firstGroup == null) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -708,11 +703,10 @@ class _DashboardBody extends StatelessWidget {
       ),
       _QuickAction(
         icon: Icons.notifications_active_outlined,
-        label: 'Kirim\nReminder',
+        label: 'Tambah\nReminder',
         onTap: () {
           // Buka tab Reminder (index 2)
           onNavigateTo?.call(NavIndex.reminder);
-          // TODO: _showReminderBottomSheet — Orang 3 (FCM)
         },
       ),
     ];
@@ -900,91 +894,112 @@ class _BalanceListItem extends StatelessWidget {
 // ---------------------------------------------------------------------------
 // GROUP LIST ITEM — data dari GroupModel Firestore
 // ---------------------------------------------------------------------------
-
 class _GroupListItem extends StatelessWidget {
   final GroupModel group;
-  final double netAmount; // net balance user di grup ini
-
+  final double netAmount; // net balance user di grup ini (positif=piutang, negatif=utang)
+  final VoidCallback? onTap;
+ 
   const _GroupListItem({
     required this.group,
     required this.netAmount,
+    this.onTap,
   });
-
+ 
   @override
   Widget build(BuildContext context) {
-    // netAmount == 0 atau tidak ada transaksi = lunas / bersih
-    final hasBalance = netAmount.abs() > 1; // threshold Rp 1 untuk floating point
+    final hasBalance = netAmount.abs() > 1;
     final isPositive = netAmount >= 0;
-
+ 
+    // Warna & teks badge
+    final badgeBg = !hasBalance
+        ? AppColors.settledBg
+        : isPositive
+            ? const Color(0xFFE8FDF9)
+            : const Color(0xFFFFF0F0);
+    final badgeFg = !hasBalance
+        ? AppColors.settledFg
+        : isPositive
+            ? AppColors.positive
+            : AppColors.negative;
+    final badgeText = !hasBalance
+        ? 'Lunas ✓'
+        : '${isPositive ? '+' : '-'}${_formatRupiahShort(netAmount.abs())}';
+ 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.white,
+      child: Material(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: onTap,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.border, width: 1),
-        ),
-        padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Row(
-          children: [
-            // Icon box
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE6FAF8),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.group_outlined,
-                  color: AppColors.primary, size: 20),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.border, width: 1),
             ),
-            const SizedBox(width: 12),
-            // Info
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    group.name,
-                    style: AppTypography.body,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                // Icon box
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${group.members.length} anggota',
-                    style: AppTypography.caption,
+                  child: const Icon(Icons.group_outlined,
+                      color: AppColors.primary, size: 20),
+                ),
+                const SizedBox(width: 12),
+                // Info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        group.name,
+                        style: AppTypography.body,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${group.members.length} anggota',
+                        style: AppTypography.subCaption,
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 8),
+                // Badge nominal + chevron
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: badgeBg,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        badgeText,
+                        style: AppTypography.caption.copyWith(fontWeight: FontWeight.w600, color: badgeFg),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.chevron_right_rounded,
+                        color: AppColors.textSecondary, size: 18),
+                  ],
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            // Badge
-            Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: !hasBalance
-                    ? AppColors.settledBg
-                    : (isPositive
-                        ? const Color(0xFFE8FDF9)
-                        : const Color(0xFFFFF0F0)),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                // TODO: Setelah Orang 1 tambah groupId ke TransactionModel,
-                // nilai ini akan akurat per-grup.
-                // Untuk sekarang tampilkan lunas karena filter belum bisa dilakukan.
-                'Lunas ✓',
-                style: AppTypography.caption.copyWith(fontWeight: FontWeight.w600, color: AppColors.settledFg),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
 }
-
 // ---------------------------------------------------------------------------
 // QUICK ACTION HELPER
 // ---------------------------------------------------------------------------
@@ -1023,7 +1038,7 @@ class _QuickActionButton extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               action.label,
-              style: AppTypography.caption.copyWith(color: AppColors.textPrimary),
+              style: AppTypography.subCaption.copyWith(color: AppColors.textPrimary),
               textAlign: TextAlign.center,
             ),
           ],

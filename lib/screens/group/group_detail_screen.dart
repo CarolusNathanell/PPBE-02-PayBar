@@ -360,6 +360,21 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                 ),
               ),
 
+              // Siapa kurang berapa
+              SliverToBoxAdapter(
+                child: StreamBuilder<Map<String, double>>(
+                  stream: _txService.getGroupBalances(widget.groupId),
+                  builder: (ctx, balanceSnap) {
+                    final balances = balanceSnap.data ?? {};
+                    return _BalanceSection(
+                      balances: balances,
+                      memberNames: _memberNames,
+                      currentUid: currentUid,
+                    );
+                  },
+                ),
+              ),
+
               // Header transaksi
               SliverToBoxAdapter(
                 child: Padding(
@@ -548,6 +563,101 @@ class _MembersSection extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
+          const Divider(height: 20),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Balance Section
+
+class _BalanceSection extends StatelessWidget {
+  final Map<String, double> balances;
+  final Map<String, String> memberNames;
+  final String currentUid;
+
+  const _BalanceSection({
+    required this.balances,
+    required this.memberNames,
+    required this.currentUid,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Sembunyikan dulu sampai data nama & saldo siap, atau kalau semua lunas
+    final entries = balances.entries
+        .where((e) => e.value.abs() > 1 && memberNames.containsKey(e.key))
+        .toList()
+      ..sort((a, b) => b.value.abs().compareTo(a.value.abs()));
+
+    if (entries.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      color: AppColors.white,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.account_balance_wallet_outlined,
+                  size: 16, color: AppColors.textSecondary),
+              const SizedBox(width: 6),
+              Text(
+                'Rekapitulasi',
+                style: AppTypography.body.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ...entries.map((e) {
+            final name = memberNames[e.key] ?? '...';
+            final isMe = e.key == currentUid;
+            final isOwed = e.value > 0; // piutang — orang ini harus menerima
+            final color = isOwed ? AppColors.positive : AppColors.negative;
+            final label = isOwed ? 'Harus menerima' : 'Harus membayar';
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 16,
+                    backgroundColor: color.withValues(alpha: 0.12),
+                    child: Text(
+                      name.isNotEmpty ? name[0].toUpperCase() : '?',
+                      style: AppTypography.caption
+                          .copyWith(color: color, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      isMe ? '$name (kamu)' : name,
+                      style: AppTypography.body
+                          .copyWith(fontWeight: FontWeight.w600),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        CurrencyService.formatCurrency(e.value.abs(), 'IDR'),
+                        style: AppTypography.nominal.copyWith(color: color),
+                      ),
+                      Text(label, style: AppTypography.caption),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          }),
           const Divider(height: 20),
         ],
       ),

@@ -9,6 +9,9 @@ class TransactionModel {
   final String paidBy; // uid
   final List<String> participants; // uids
   final DateTime createdAt;
+  // uid -> nominal tagihan masing-masing (dalam currency transaksi).
+  // Map kosong berarti bagi sama rata (amount / participants.length).
+  final Map<String, double> splits;
 
   const TransactionModel({
     required this.id,
@@ -19,10 +22,17 @@ class TransactionModel {
     required this.paidBy,
     required this.participants,
     required this.createdAt,
+    this.splits = const {},
   });
+
+  bool get isEqualSplit => splits.isEmpty;
 
   double get perPerson =>
       participants.isEmpty ? 0 : amount / participants.length;
+
+  // Tagihan orang tertentu: pakai splits jika ada, fallback ke sama rata.
+  double splitFor(String uid) =>
+      splits.isEmpty ? perPerson : (splits[uid] ?? 0);
 
   factory TransactionModel.fromFirestore(DocumentSnapshot doc) {
     final d = doc.data() as Map<String, dynamic>;
@@ -37,6 +47,9 @@ class TransactionModel {
       createdAt: d['createdAt'] != null
           ? (d['createdAt'] as Timestamp).toDate()
           : DateTime.now(),
+      splits: (d['splits'] as Map<String, dynamic>?)
+              ?.map((k, v) => MapEntry(k, (v as num).toDouble())) ??
+          {},
     );
   }
 
@@ -48,6 +61,8 @@ class TransactionModel {
         'paidBy': paidBy,
         'participants': participants,
         'createdAt': Timestamp.fromDate(createdAt),
+        // Simpan splits hanya jika tidak sama rata; hemat storage.
+        if (splits.isNotEmpty) 'splits': splits,
       };
 
   TransactionModel copyWith({
@@ -59,6 +74,7 @@ class TransactionModel {
     String? paidBy,
     List<String>? participants,
     DateTime? createdAt,
+    Map<String, double>? splits,
   }) =>
       TransactionModel(
         id: id ?? this.id,
@@ -69,5 +85,6 @@ class TransactionModel {
         paidBy: paidBy ?? this.paidBy,
         participants: participants ?? this.participants,
         createdAt: createdAt ?? this.createdAt,
+        splits: splits ?? this.splits,
       );
 }

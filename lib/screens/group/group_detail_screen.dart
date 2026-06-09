@@ -759,8 +759,9 @@ class _TransactionCard extends StatelessWidget {
                             ),
                             const SizedBox(height: 3),
                             Text(
-                              '${tx.participants.length} orang · per org: '
-                              '${CurrencyService.formatCurrency(tx.perPerson, tx.currency)}',
+                              tx.isEqualSplit
+                                  ? '${tx.participants.length} org · per org: ${CurrencyService.formatCurrency(tx.perPerson, tx.currency)}'
+                                  : '${tx.participants.length} org · tagihan',
                               style: AppTypography.caption.copyWith(
                                   color: AppColors.primary),
                             ),

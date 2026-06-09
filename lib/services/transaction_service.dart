@@ -74,10 +74,23 @@ class TransactionService {
     for (var i = 0; i < transactions.length; i++) {
       final tx = transactions[i];
       if (tx.participants.isEmpty) continue;
+
+      // amount: gunakan nilai IDR jika tersedia (untuk transaksi non-IDR),
+      // fallback ke tx.amount apa adanya.
       final amount = amountsInIdr != null ? amountsInIdr[i] : tx.amount;
-      final share = amount / tx.participants.length;
+
       for (final uid in tx.participants) {
         if (uid == tx.paidBy) continue;
+
+        // Jika ada splits custom, proporsi tagihan uid diambil dari splits
+        // lalu diskala ke amount (supaya konversi IDR ikut terhitung).
+        final double share;
+        if (tx.splits.isNotEmpty && tx.amount > 0) {
+          share = (tx.splits[uid] ?? 0) / tx.amount * amount;
+        } else {
+          share = amount / tx.participants.length;
+        }
+
         balances[uid] = (balances[uid] ?? 0) - share;
         balances[tx.paidBy] = (balances[tx.paidBy] ?? 0) + share;
       }

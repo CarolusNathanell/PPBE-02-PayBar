@@ -35,6 +35,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
   late String _selectedPaidBy;
   late Set<String> _selectedParticipants;
 
+  // uid → controller untuk nominal tagihan masing-masing peserta
+  late final Map<String, TextEditingController> _splitControllers;
+
   double? _idrEquivalent;
   bool _isConverting = false;
   bool _isSaving = false;
@@ -57,9 +60,27 @@ class _TransactionScreenState extends State<TransactionScreen> {
         ? Set<String>.from(existing.participants)
         : Set<String>.from(members);
 
+    // Inisialisasi satu controller per member
+    _splitControllers = {
+      for (final uid in members) uid: TextEditingController(),
+    };
+
     if (existing != null) {
       _descController.text = existing.description;
       _amountController.text = existing.amount.toString();
+
+      // Isi splits: dari data existing jika ada, fallback sama rata
+      if (existing.splits.isNotEmpty) {
+        for (final uid in existing.participants) {
+          final val = existing.splits[uid];
+          if (val != null) {
+            _splitControllers[uid]?.text = _formatSplitValue(val);
+          }
+        }
+      } else {
+        _recalculateSplits();
+      }
+
       if (existing.currency != 'IDR') _fetchConversion();
     }
   }
@@ -68,11 +89,44 @@ class _TransactionScreenState extends State<TransactionScreen> {
   void dispose() {
     _descController.dispose();
     _amountController.dispose();
+    for (final c in _splitControllers.values) {
+      c.dispose();
+    }
     _debounce?.cancel();
     super.dispose();
   }
 
+  String _formatSplitValue(double v) {
+    if (v == v.roundToDouble()) return v.toInt().toString();
+    return v.toStringAsFixed(2);
+  }
+
+  // Distribusi ulang secara sama rata ke semua peserta yang dipilih.
+  // Dipanggil saat total amount berubah atau peserta berubah.
+  void _recalculateSplits() {
+    final total = double.tryParse(
+            _amountController.text.trim().replaceAll(',', '')) ??
+        0;
+    final count = _selectedParticipants.length;
+    if (count == 0 || total <= 0) {
+      for (final uid in _selectedParticipants) {
+        _splitControllers[uid]?.text = '';
+      }
+      return;
+    }
+    final share = total / count;
+    for (final uid in _selectedParticipants) {
+      _splitControllers[uid]?.text = _formatSplitValue(share);
+    }
+  }
+
+  double get _splitsTotal => _selectedParticipants.fold(0.0, (sum, uid) {
+        final raw = _splitControllers[uid]?.text.trim().replaceAll(',', '') ?? '';
+        return sum + (double.tryParse(raw) ?? 0);
+      });
+
   void _onAmountOrCurrencyChanged() {
+    _recalculateSplits();
     if (_selectedCurrency == 'IDR') {
       setState(() => _idrEquivalent = null);
       return;
@@ -109,12 +163,39 @@ class _TransactionScreenState extends State<TransactionScreen> {
       return;
     }
 
+    final amount =
+        double.tryParse(_amountController.text.trim().replaceAll(',', ''));
+    if (amount == null || amount <= 0) return;
+
+    // Validasi: jumlah splits harus ≈ total (toleransi Rp 1 untuk pembulatan)
+    final total = _splitsTotal;
+    if ((total - amount).abs() > 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Total tagihan (${CurrencyService.formatCurrency(total, _selectedCurrency)}) '
+            'belum sama dengan jumlah transaksi.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    // Bangun splits map; kosongkan jika semua peserta dapat porsi sama
+    final splitsMap = <String, double>{
+      for (final uid in _selectedParticipants)
+        uid: double.tryParse(
+                _splitControllers[uid]?.text.trim().replaceAll(',', '') ??
+                    '') ??
+            0,
+    };
+    final equalShare = amount / _selectedParticipants.length;
+    final isEffectivelyEqual = splitsMap.values
+        .every((v) => (v - equalShare).abs() <= 1);
+    final finalSplits = isEffectivelyEqual ? <String, double>{} : splitsMap;
+
     setState(() => _isSaving = true);
     try {
-      final amount = double.parse(
-        _amountController.text.trim().replaceAll(',', ''),
-      );
-
       final tx = TransactionModel(
         id: widget.existing?.id ?? '',
         groupId: widget.groupId,
@@ -124,6 +205,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
         paidBy: _selectedPaidBy,
         participants: _selectedParticipants.toList(),
         createdAt: widget.existing?.createdAt ?? DateTime.now(),
+        splits: finalSplits,
       );
 
       if (widget.existing == null) {
@@ -149,12 +231,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
   Widget build(BuildContext context) {
     final isEdit = widget.existing != null;
     final members = widget.memberNames;
-
-    // Per-person calculation
-    final rawAmount = double.tryParse(_amountController.text.trim()) ?? 0;
-    final perPerson = _selectedParticipants.isNotEmpty && rawAmount > 0
-        ? rawAmount / _selectedParticipants.length
-        : null;
+    final rawAmount =
+        double.tryParse(_amountController.text.trim().replaceAll(',', '')) ?? 0;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -174,7 +252,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Deskripsi
+              // ── Deskripsi ──────────────────────────────────────────────
               _FieldLabel('Deskripsi'),
               TextFormField(
                 controller: _descController,
@@ -190,7 +268,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
               ),
               const SizedBox(height: 20),
 
-              // Jumlah + Currency
+              // ── Jumlah + Currency ──────────────────────────────────────
               _FieldLabel('Jumlah'),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -206,9 +284,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
                         prefixText:
                             _selectedCurrency == 'IDR' ? 'Rp ' : null,
                       ),
-                      onChanged: (_) => setState(() {
-                        _onAmountOrCurrencyChanged();
-                      }),
+                      onChanged: (_) => setState(_onAmountOrCurrencyChanged),
                       validator: (val) {
                         if (val == null || val.trim().isEmpty) {
                           return 'Jumlah wajib diisi';
@@ -237,43 +313,38 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 200),
                   child: _isConverting
-                      ? const Row(
-                          children: [
-                            SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: AppColors.textSecondary)),
-                            SizedBox(width: 8),
-                            Text('Mengambil kurs...'),
-                          ],
-                        )
+                      ? const Row(children: [
+                          SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppColors.textSecondary),
+                          ),
+                          SizedBox(width: 8),
+                          Text('Mengambil kurs...'),
+                        ])
                       : _idrEquivalent != null
-                          ? Row(
-                              children: [
-                                const Icon(Icons.sync_alt_rounded,
-                                    size: 14, color: AppColors.primary),
-                                const SizedBox(width: 6),
-                                Text(
-                                  '≈ ${CurrencyService.formatCurrency(_idrEquivalent!, 'IDR')}',
-                                  style: AppTypography.caption.copyWith(
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                          ? Row(children: [
+                              const Icon(Icons.sync_alt_rounded,
+                                  size: 14, color: AppColors.primary),
+                              const SizedBox(width: 6),
+                              Text(
+                                '≈ ${CurrencyService.formatCurrency(_idrEquivalent!, 'IDR')}',
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                                Text(
-                                  '  (kurs hari ini)',
-                                  style: AppTypography.caption,
-                                ),
-                              ],
-                            )
+                              ),
+                              Text('  (kurs hari ini)',
+                                  style: AppTypography.caption),
+                            ])
                           : const SizedBox.shrink(),
                 ),
               ],
               const SizedBox(height: 20),
 
-              // Dibayar oleh
+              // ── Dibayar oleh ───────────────────────────────────────────
               _FieldLabel('Dibayar oleh'),
               DropdownButtonFormField<String>(
                 key: ValueKey(_selectedPaidBy),
@@ -287,13 +358,36 @@ class _TransactionScreenState extends State<TransactionScreen> {
                           child: Text(e.value),
                         ))
                     .toList(),
-                onChanged: (val) =>
-                    setState(() => _selectedPaidBy = val!),
+                onChanged: (val) => setState(() => _selectedPaidBy = val!),
               ),
               const SizedBox(height: 20),
 
-              // Dibagi ke
-              _FieldLabel('Dibagi ke siapa?'),
+              // ── Dibagi ke siapa + nominal per orang ───────────────────
+              Row(
+                children: [
+                  Expanded(
+                    child: _FieldLabel('Dibagi ke siapa?'),
+                  ),
+                  if (rawAmount > 0 && _selectedParticipants.isNotEmpty)
+                    GestureDetector(
+                      onTap: () => setState(_recalculateSplits),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.refresh_rounded,
+                              size: 14, color: AppColors.primary),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Reset sama rata',
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
               Container(
                 decoration: BoxDecoration(
                   color: AppColors.white,
@@ -302,60 +396,64 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 ),
                 child: Column(
                   children: members.entries.map((e) {
-                    final isSelected =
-                        _selectedParticipants.contains(e.key);
-                    return CheckboxListTile(
-                      value: isSelected,
-                      onChanged: (val) => setState(() {
-                        if (val == true) {
-                          _selectedParticipants.add(e.key);
-                        } else {
-                          _selectedParticipants.remove(e.key);
-                        }
-                      }),
-                      title: Text(e.value, style: AppTypography.body),
-                      activeColor: AppColors.primary,
-                      checkColor: AppColors.white,
-                      controlAffinity: ListTileControlAffinity.leading,
-                      contentPadding:
-                          const EdgeInsets.symmetric(horizontal: 12),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                    final uid = e.key;
+                    final name = e.value;
+                    final isSelected = _selectedParticipants.contains(uid);
+                    return Column(
+                      children: [
+                        CheckboxListTile(
+                          value: isSelected,
+                          onChanged: (val) => setState(() {
+                            if (val == true) {
+                              _selectedParticipants.add(uid);
+                            } else {
+                              _selectedParticipants.remove(uid);
+                              _splitControllers[uid]?.text = '';
+                            }
+                            _recalculateSplits();
+                          }),
+                          title: Text(name, style: AppTypography.body),
+                          activeColor: AppColors.primary,
+                          checkColor: AppColors.white,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          contentPadding:
+                              const EdgeInsets.only(left: 12, right: 8),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                        // Input nominal — hanya tampil jika peserta dipilih
+                        if (isSelected)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                            child: TextFormField(
+                              controller: _splitControllers[uid],
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                              textInputAction: TextInputAction.next,
+                              decoration: InputDecoration(
+                                isDense: true,
+                                prefixText: _selectedCurrency == 'IDR'
+                                    ? 'Rp '
+                                    : null,
+                                hintText: 'Nominal tagihan $name',
+                              ),
+                              onChanged: (_) => setState(() {}),
+                            ),
+                          ),
+                      ],
                     );
                   }).toList(),
                 ),
               ),
 
-              // Per-person calculation
-              if (perPerson != null) ...[
+              // ── Indikator alokasi ──────────────────────────────────────
+              if (rawAmount > 0 && _selectedParticipants.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.06),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                        color: AppColors.primary.withValues(alpha: 0.2)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.calculate_outlined,
-                          size: 16, color: AppColors.primary),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Per orang (${_selectedParticipants.length} org): ',
-                        style: AppTypography.body
-                            .copyWith(color: AppColors.textSecondary),
-                      ),
-                      Text(
-                        CurrencyService.formatCurrency(
-                            perPerson, _selectedCurrency),
-                        style: AppTypography.nominal
-                            .copyWith(color: AppColors.primary),
-                      ),
-                    ],
-                  ),
+                _SplitIndicator(
+                  total: rawAmount,
+                  allocated: _splitsTotal,
+                  currency: _selectedCurrency,
                 ),
               ],
 
@@ -380,7 +478,63 @@ class _TransactionScreenState extends State<TransactionScreen> {
   }
 }
 
-// Currency dropdown
+// ── Split indicator ───────────────────────────────────────────────────────────
+
+class _SplitIndicator extends StatelessWidget {
+  final double total;
+  final double allocated;
+  final String currency;
+
+  const _SplitIndicator({
+    required this.total,
+    required this.allocated,
+    required this.currency,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = total - allocated;
+    final isBalanced = remaining.abs() <= 1;
+    final color = isBalanced ? AppColors.positive : AppColors.negative;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isBalanced ? Icons.check_circle_outline_rounded : Icons.info_outline_rounded,
+            size: 16,
+            color: color,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              isBalanced
+                  ? 'Semua sudah teralokasi'
+                  : remaining > 0
+                      ? 'Sisa ${CurrencyService.formatCurrency(remaining, currency)} belum dialokasikan'
+                      : 'Kelebihan ${CurrencyService.formatCurrency(remaining.abs(), currency)}',
+              style: AppTypography.body.copyWith(color: color),
+            ),
+          ),
+          Text(
+            '${CurrencyService.formatCurrency(allocated, currency)} / ${CurrencyService.formatCurrency(total, currency)}',
+            style: AppTypography.caption
+                .copyWith(color: color, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Currency dropdown ─────────────────────────────────────────────────────────
+
 class _CurrencyDropdown extends StatelessWidget {
   final String value;
   final ValueChanged<String?> onChanged;
@@ -415,7 +569,8 @@ class _CurrencyDropdown extends StatelessWidget {
   }
 }
 
-// Section label helper
+// ── Section label helper ──────────────────────────────────────────────────────
+
 class _FieldLabel extends StatelessWidget {
   final String text;
   const _FieldLabel(this.text);

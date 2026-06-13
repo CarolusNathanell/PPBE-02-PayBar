@@ -7,8 +7,6 @@ import 'package:paybar_app/core/theme/app_typography.dart';
 import 'package:paybar_app/models/group_model.dart';
 import 'package:paybar_app/models/transaction_model.dart';
 import 'package:paybar_app/screens/group/group_detail_screen.dart';
-import 'package:paybar_app/screens/home/nav_index.dart';
-import 'package:paybar_app/screens/settlement/settlement_screen.dart';
 import 'package:paybar_app/services/group_service.dart';
 import 'package:paybar_app/services/transaction_service.dart';
 
@@ -43,13 +41,6 @@ String _formatRupiahFull(double amount) {
 //   - paidBy == currentUid  → setiap participant lain hutang (perPerson) ke kamu
 //   - participant == currentUid && paidBy != currentUid → kamu hutang (perPerson) ke paidBy
 // ---------------------------------------------------------------------------
-
-class _PersonBalance {
-  final String uid;
-  double net; // positif = dia hutang ke kamu, negatif = kamu hutang ke dia
-
-  _PersonBalance({required this.uid, required this.net});
-}
 
 /// Agregasi balance dari semua transaksi di semua grup.
 /// Returns map uid → net amount (dari sudut pandang currentUid).
@@ -88,7 +79,6 @@ class DashboardScreen extends StatefulWidget {
   final void Function(int index)? onNavigateTo;
 
   /// Callback untuk push screen di atas tab Grup, nav bar tetap tampil.
-  /// Digunakan oleh quick action "Tandai Lunas" → SettlementScreen.
   final void Function(Widget screen)? onPushToGrup;
 
   final void Function()? onLogout;
@@ -395,13 +385,7 @@ class _DashboardBody extends StatelessWidget {
                   childCount: groups.length,
                 ),
               ),
- 
-            // ── Aksi Cepat ─────────────────────────────────────────────────
-            SliverToBoxAdapter(child: _buildSectionTitle('Aksi cepat')),
-            SliverToBoxAdapter(child: _buildQuickActions(context)),
- 
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
- 
+
             // ── TODO: Ringkasan per Bulan ──────────────────────────────────
             // SliverToBoxAdapter(child: _buildMonthlyChart(allTx)),
  
@@ -650,77 +634,6 @@ class _DashboardBody extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  // ── Quick Actions ────────────────────────────────────────────────────────
-
-  Widget _buildQuickActions(BuildContext context) {
-    // Grup pertama yang user ikuti — dipakai sebagai default landing
-    // untuk settlement. Jika tidak ada grup, tampilkan snackbar.
-    final firstGroup = groups.isNotEmpty ? groups.first : null;
-
-    final actions = [
-      _QuickAction(
-        icon: Icons.add_rounded,
-        label: 'Catat\nTransaksi',
-        onTap: () {
-          onNavigateTo?.call(NavIndex.grup);
-        },
-      ),
-      _QuickAction(
-        icon: Icons.check_circle_outline_rounded,
-        label: 'Catat\nTransfer',
-        onTap: () {
-          if (firstGroup == null) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Buat grup dulu sebelum tambah settlement.'),
-              ),
-            );
-            return;
-          }
-          // Push SettlementScreen di atas tab Grup — nav bar tetap tampil
-          onPushToGrup?.call(
-            SettlementScreen(
-              groupId: firstGroup.id,
-              // memberNames dikosongkan dulu; akan diisi oleh GroupDetailScreen
-              // saat user navigasi normal. Dari quick action, GroupService
-              // sudah dipanggil ulang di dalam SettlementScreen via stream.
-              memberNames: const {},
-            ),
-          );
-        },
-      ),
-      _QuickAction(
-        icon: Icons.group_add_outlined,
-        label: 'Buat\nGrup',
-        onTap: () {
-          // Buka tab Grup — FAB di GroupListScreen sudah handle buat grup
-          onNavigateTo?.call(NavIndex.grup);
-        },
-      ),
-      _QuickAction(
-        icon: Icons.notifications_active_outlined,
-        label: 'Tambah\nReminder',
-        onTap: () {
-          // Buka tab Reminder (index 2)
-          onNavigateTo?.call(NavIndex.reminder);
-        },
-      ),
-    ];
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: GridView.count(
-        crossAxisCount: 4,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-        children:
-            actions.map((a) => _QuickActionButton(action: a)).toList(),
       ),
     );
   }
@@ -995,53 +908,6 @@ class _GroupListItem extends StatelessWidget {
               ],
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-// ---------------------------------------------------------------------------
-// QUICK ACTION HELPER
-// ---------------------------------------------------------------------------
-
-class _QuickAction {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  const _QuickAction({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-}
-
-class _QuickActionButton extends StatelessWidget {
-  final _QuickAction action;
-
-  const _QuickActionButton({required this.action});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: action.onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.border, width: 1),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(action.icon, color: AppColors.primary, size: 24),
-            const SizedBox(height: 6),
-            Text(
-              action.label,
-              style: AppTypography.subCaption.copyWith(color: AppColors.textPrimary),
-              textAlign: TextAlign.center,
-            ),
-          ],
         ),
       ),
     );

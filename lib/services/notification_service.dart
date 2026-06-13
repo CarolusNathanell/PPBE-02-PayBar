@@ -3,7 +3,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:paybar_app/models/notification_model.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
@@ -42,9 +41,9 @@ class NotificationService {
       sound: true,
     );
 
+    // Hardcode Asia/Jakarta
     tz.initializeTimeZones();
-    final String timezoneName = await FlutterTimezone.getLocalTimezone();
-    tz.setLocalLocation(tz.getLocation(timezoneName));
+    tz.setLocalLocation(tz.getLocation('Asia/Jakarta'));
 
     const AndroidInitializationSettings androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -87,6 +86,7 @@ class NotificationService {
     _startGroupListeners();
   }
 
+  // Firestore Listener: auto notif tanpa Cloud Functions
   void _startGroupListeners() {
     final String? uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
@@ -106,10 +106,12 @@ class NotificationService {
         final String groupName = data['name'] as String? ?? 'sebuah grup';
         _listenNewTransactions(uid, groupId, groupName);
         _listenNewSettlements(uid, groupId, groupName);
+        _listenSettlementConfirmations(uid, groupId, groupName);
       }
     });
   }
 
+  // Listener: Transaksi baru (notif ke anggota yang ikut bayar)
   void _listenNewTransactions(
       String uid, String groupId, String groupName) {
     final Timestamp startTime = Timestamp.now();
@@ -128,11 +130,15 @@ class NotificationService {
         final Map<String, dynamic> tx =
             change.doc.data() as Map<String, dynamic>;
         final Timestamp? createdAt = tx['createdAt'] as Timestamp?;
-
         if (createdAt == null || createdAt.compareTo(startTime) <= 0) continue;
 
         final String paidBy = tx['paidBy'] as String? ?? '';
         if (paidBy == uid) continue;
+
+        // Cek apakah uid termasuk participants
+        final List<dynamic> participants =
+            tx['participants'] as List<dynamic>? ?? [];
+        if (!participants.contains(uid)) continue;
 
         final DocumentSnapshot payerDoc =
             await _firestore.collection('users').doc(paidBy).get();
@@ -159,6 +165,7 @@ class NotificationService {
     });
   }
 
+  // Listener: Settlement baru (notif ke penerima (toUid))
   void _listenNewSettlements(
       String uid, String groupId, String groupName) {
     final Timestamp startTime = Timestamp.now();
@@ -167,7 +174,7 @@ class NotificationService {
         .collection('groups')
         .doc(groupId)
         .collection('settlements')
-        .orderBy('settledAt', descending: true)
+        .orderBy('createdAt', descending: true)
         .limit(20)
         .snapshots()
         .listen((QuerySnapshot snap) async {
@@ -176,10 +183,10 @@ class NotificationService {
 
         final Map<String, dynamic> settlement =
             change.doc.data() as Map<String, dynamic>;
-        final Timestamp? settledAt = settlement['settledAt'] as Timestamp?;
+        final Timestamp? createdAt = settlement['createdAt'] as Timestamp?;
+        if (createdAt == null || createdAt.compareTo(startTime) <= 0) continue;
 
-        if (settledAt == null || settledAt.compareTo(startTime) <= 0) continue;
-
+        // Hanya notif ke toUid (penerima/yang harus konfirmasi)
         final String toUid = settlement['toUid'] as String? ?? '';
         if (toUid != uid) continue;
 
@@ -192,9 +199,58 @@ class NotificationService {
 
         final dynamic amount = settlement['amount'] ?? 0;
 
-        const String title = 'Hutang Dibayar! 💸';
+        const String title = 'Ada Pelunasan Masuk! 💸';
         final String body =
-            '$fromName udah bayar Rp$amount di grup $groupName';
+            '$fromName klaim udah bayar Rp$amount di grup $groupName. Konfirmasi ya!';
+
+        await _saveToInbox(
+          uid: uid,
+          title: title,
+          body: body,
+          type: 'settlement',
+          groupId: groupId,
+        );
+        await showLocalNotification(title: title, body: body);
+      }
+    });
+  }
+
+  // Listener: Settlement dikonfirmasi (notif ke pembayar (fromUid))
+  void _listenSettlementConfirmations(
+      String uid, String groupId, String groupName) {
+    final Timestamp startTime = Timestamp.now();
+
+    _firestore
+        .collection('groups')
+        .doc(groupId)
+        .collection('settlements')
+        .where('fromUid', isEqualTo: uid)
+        .snapshots()
+        .listen((QuerySnapshot snap) async {
+      for (final DocumentChange change in snap.docChanges) {
+        // Hanya deteksi update (bukan added)
+        if (change.type != DocumentChangeType.modified) continue;
+
+        final Map<String, dynamic> settlement =
+            change.doc.data() as Map<String, dynamic>;
+        final bool settled = settlement['settled'] as bool? ?? false;
+        if (!settled) continue;
+
+        final Timestamp? settledAt = settlement['settledAt'] as Timestamp?;
+        if (settledAt == null || settledAt.compareTo(startTime) <= 0) continue;
+
+        final String toUid = settlement['toUid'] as String? ?? '';
+        final DocumentSnapshot toDoc =
+            await _firestore.collection('users').doc(toUid).get();
+        final Map<String, dynamic>? toData =
+            toDoc.data() as Map<String, dynamic>?;
+        final String toName = toData?['name'] as String? ?? 'Seseorang';
+
+        final dynamic amount = settlement['amount'] ?? 0;
+
+        const String title = 'Pelunasan Dikonfirmasi! ✅';
+        final String body =
+            '$toName udah konfirmasi pembayaran Rp$amount di grup $groupName';
 
         await _saveToInbox(
           uid: uid,
@@ -217,6 +273,7 @@ class NotificationService {
     );
   }
 
+  // Local Notification: immediate
   Future<void> showLocalNotification({
     required String title,
     required String body,
@@ -238,46 +295,28 @@ class NotificationService {
     );
   }
 
+  // Scheduled Notification — untuk reminder
   Future<void> scheduleReminderNotification({
     required int id,
     required String title,
     required String body,
     required DateTime scheduledDate,
   }) async {
-    final DateTime notifTime = DateTime(
+    final tz.TZDateTime scheduledTz = tz.TZDateTime(
+      tz.getLocation('Asia/Jakarta'),
       scheduledDate.year,
       scheduledDate.month,
       scheduledDate.day,
       7,
-      1,
+      15,
     );
 
-    if (notifTime.isBefore(DateTime.now())) {
-      final tomorrow = DateTime(
-        scheduledDate.year,
-        scheduledDate.month,
-        scheduledDate.day + 1,
-        7,
-        1,
-      );
-      return scheduleReminderNotification(
-        id: id,
-        title: title,
-        body: body,
-        scheduledDate: tomorrow,
-      );
+    // Kalau sudah lewat, skip
+    final now = tz.TZDateTime.now(tz.getLocation('Asia/Jakarta'));
+    if (scheduledTz.isBefore(now)) {
+      debugPrint('[Reminder] Waktu sudah lewat, tidak dijadwalkan: $scheduledTz');
+      return;
     }
-
-    final tz.TZDateTime tzTime = tz.TZDateTime.from(notifTime, tz.local);
-
-    final tz.TZDateTime scheduledTz = tz.TZDateTime(
-      tz.local,
-      tzTime.year,
-      tzTime.month,
-      tzTime.day,
-      tzTime.hour,
-      tzTime.minute,
-    );
 
     await _local.zonedSchedule(
       id: id,
@@ -293,28 +332,15 @@ class NotificationService {
           icon: '@mipmap/ic_launcher',
           styleInformation: BigTextStyleInformation(body),
           channelShowBadge: true,
-          ongoing: false,
           autoCancel: true,
         ),
       ),
-
-      
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      
       payload: 'reminder_$id',
     );
 
-    debugPrint('[Reminder Scheduled] ✅ Success! "$title" → $scheduledTz');
-    debugPrint('[Reminder Scheduled] Current time: ${DateTime.now()}');
-
-    // Cek pending notifications
-    final pending = await _local.pendingNotificationRequests();
-    debugPrint('📋 Total pending: ${pending.length}');
-    for (var p in pending) {
-      debugPrint('  - ID: ${p.id}, Title: ${p.title}');
-    }
+    debugPrint('[Reminder Scheduled] ✅ "$title" → $scheduledTz');
   }
-
 
   Future<void> cancelReminderNotification(int id) async {
     await _local.cancel(id: id);
@@ -324,28 +350,7 @@ class NotificationService {
     await _local.cancelAll();
   }
 
-  // Tambahkan method ini untuk testing (letakkan setelah scheduleReminderNotification)
-Future<void> testReminderNow() async {
-  // Test dengan delay 10 detik
-  final testTime = DateTime.now().add(Duration(seconds: 10));
-  
-  await scheduleReminderNotification(
-    id: 999999,
-    title: '🔔 TEST REMINDER',
-    body: 'Notifikasi reminder berhasil! Waktu: ${DateTime.now()}',
-    scheduledDate: testTime,
-  );
-  
-  debugPrint('⏰ Test reminder scheduled for: $testTime');
-  
-  // Cek pending notifications
-  final pending = await _local.pendingNotificationRequests();
-  debugPrint('📋 Total pending notifications: ${pending.length}');
-  for (var p in pending) {
-    debugPrint('  - ID: ${p.id}, Title: ${p.title}');
-  }
-}
-
+  // Inbox
   Stream<List<NotificationModel>> getNotifications() {
     final String? uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return const Stream.empty();
@@ -399,6 +404,24 @@ Future<void> testReminderNow() async {
         .collection('notifications')
         .doc(notificationId)
         .delete();
+  }
+
+  // hapus semua notifikasi
+  Future<void> deleteAllNotifications() async {
+    final String? uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    final QuerySnapshot snap = await _firestore
+        .collection('users')
+        .doc(uid)
+        .collection('notifications')
+        .get();
+
+    final WriteBatch batch = _firestore.batch();
+    for (final DocumentSnapshot doc in snap.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
   }
 
   Future<void> _saveToInbox({

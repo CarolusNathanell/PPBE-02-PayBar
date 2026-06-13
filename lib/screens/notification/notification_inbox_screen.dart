@@ -8,6 +8,72 @@ import 'package:paybar_app/services/notification_service.dart';
 class NotificationInboxScreen extends StatelessWidget {
   const NotificationInboxScreen({super.key});
 
+  // konfirmasi hapus semua
+  void _confirmClearAll(
+      BuildContext context, NotificationService service) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: AppColors.white,
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.negative.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.delete_sweep_rounded,
+                  color: AppColors.negative, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text('Hapus Semua?', style: AppTypography.h2),
+            ),
+          ],
+        ),
+        content: Text(
+          'Semua histori notifikasi akan dihapus permanen. Aksi ini nggak bisa di-undo ya.',
+          style: AppTypography.body.copyWith(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Batal',
+                style: AppTypography.body
+                    .copyWith(color: AppColors.textSecondary)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await service.deleteAllNotifications();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text('Semua notifikasi dihapus'),
+                    backgroundColor: const Color(0xFF1A2A3A),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.negative,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('Hapus Semua'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final service = NotificationService();
@@ -20,37 +86,58 @@ class NotificationInboxScreen extends StatelessWidget {
         elevation: 0,
         scrolledUnderElevation: 1,
         actions: [
-          // Tombol "Tandai semua sudah dibaca"
           StreamBuilder<List<NotificationModel>>(
             stream: service.getNotifications(),
             builder: (context, snapshot) {
-              final hasUnread = (snapshot.data ?? []).any((n) => !n.isRead);
-              if (!hasUnread) return const SizedBox.shrink();
-              return TextButton.icon(
-                onPressed: () async {
-                  await service.markAllAsRead();
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('Semua notifikasi ditandai dibaca'),
-                        backgroundColor: const Color(0xFF1A2A3A),
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10)),
+              final notifications = snapshot.data ?? [];
+              final hasUnread = notifications.any((n) => !n.isRead);
+              final hasAny = notifications.isNotEmpty;
+
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Tandai semua dibaca
+                  if (hasUnread)
+                    TextButton.icon(
+                      onPressed: () async {
+                        await service.markAllAsRead();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: const Text(
+                                  'Semua notifikasi ditandai dibaca'),
+                              backgroundColor: const Color(0xFF1A2A3A),
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.done_all_rounded, size: 16),
+                      label: const Text('Baca Semua'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 8),
                       ),
-                    );
-                  }
-                },
-                icon: const Icon(Icons.done_all_rounded, size: 16),
-                label: const Text('Baca Semua'),
-                style: TextButton.styleFrom(
-                  foregroundColor: AppColors.primary,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                ),
+                    ),
+
+                  // Hapus semua
+                  if (hasAny)
+                    IconButton(
+                      onPressed: () =>
+                          _confirmClearAll(context, service),
+                      icon: const Icon(Icons.delete_sweep_rounded),
+                      color: AppColors.negative,
+                      tooltip: 'Hapus semua notifikasi',
+                    ),
+
+                  const SizedBox(width: 4),
+                ],
               );
             },
           ),
-          const SizedBox(width: 4),
         ],
       ),
       body: StreamBuilder<List<NotificationModel>>(
@@ -63,9 +150,7 @@ class NotificationInboxScreen extends StatelessWidget {
           }
 
           if (snapshot.hasError) {
-            return _ErrorState(
-              onRetry: () {},
-            );
+            return _ErrorState(onRetry: () {});
           }
 
           final notifications = snapshot.data ?? [];
@@ -74,7 +159,6 @@ class NotificationInboxScreen extends StatelessWidget {
             return const _EmptyState();
           }
 
-          // Hitung unread
           final unreadCount = notifications.where((n) => !n.isRead).length;
 
           return Column(
@@ -83,8 +167,8 @@ class NotificationInboxScreen extends StatelessWidget {
               if (unreadCount > 0)
                 Container(
                   margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
                       colors: [Color(0xFF00B8A9), Color(0xFF4ECDC4)],
@@ -101,8 +185,10 @@ class NotificationInboxScreen extends StatelessWidget {
                           color: Colors.white.withValues(alpha: 0.25),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Icon(Icons.notifications_active_rounded,
-                            color: Colors.white, size: 16),
+                        child: const Icon(
+                            Icons.notifications_active_rounded,
+                            color: Colors.white,
+                            size: 16),
                       ),
                       const SizedBox(width: 10),
                       Text(
@@ -116,10 +202,28 @@ class NotificationInboxScreen extends StatelessWidget {
                   ),
                 ),
 
+              // Petunjuk swipe hapus
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.swipe_left_rounded,
+                        size: 14, color: AppColors.textSecondary),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Geser kiri untuk hapus notifikasi',
+                      style: AppTypography.caption
+                          .copyWith(color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+
               // List notifikasi
               Expanded(
                 child: ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
                   itemCount: notifications.length,
                   itemBuilder: (ctx, i) => _NotificationCard(
                     notification: notifications[i],
@@ -129,7 +233,8 @@ class NotificationInboxScreen extends StatelessWidget {
                       }
                     },
                     onDelete: () async {
-                      await service.deleteNotification(notifications[i].id);
+                      await service
+                          .deleteNotification(notifications[i].id);
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
@@ -207,7 +312,6 @@ class _NotificationCard extends StatelessWidget {
   String _formatTime(DateTime dt) {
     final now = DateTime.now();
     final diff = now.difference(dt);
-
     if (diff.inMinutes < 1) return 'Baru saja';
     if (diff.inMinutes < 60) return '${diff.inMinutes} menit lalu';
     if (diff.inHours < 24) return '${diff.inHours} jam lalu';
@@ -221,7 +325,7 @@ class _NotificationCard extends StatelessWidget {
     final isUnread = !notification.isRead;
 
     return Dismissible(
-      key: Key(notification.id),
+      key: ValueKey(notification.id),
       direction: DismissDirection.endToStart,
       background: Container(
         margin: const EdgeInsets.only(bottom: 10),
@@ -263,7 +367,6 @@ class _NotificationCard extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Icon type
                 Container(
                   width: 42,
                   height: 42,
@@ -274,13 +377,10 @@ class _NotificationCard extends StatelessWidget {
                   child: Icon(_typeIcon, color: _typeColor, size: 20),
                 ),
                 const SizedBox(width: 12),
-
-                // Content
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Label + waktu
                       Row(
                         children: [
                           Container(
@@ -310,21 +410,18 @@ class _NotificationCard extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 6),
-
-                      // Title
                       Text(
                         notification.title,
                         style: AppTypography.body.copyWith(
-                          fontWeight:
-                              isUnread ? FontWeight.w700 : FontWeight.w500,
+                          fontWeight: isUnread
+                              ? FontWeight.w700
+                              : FontWeight.w500,
                           color: AppColors.textPrimary,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 3),
-
-                      // Body
                       Text(
                         notification.body,
                         style: AppTypography.body.copyWith(
@@ -337,8 +434,6 @@ class _NotificationCard extends StatelessWidget {
                     ],
                   ),
                 ),
-
-                // Unread dot
                 if (isUnread) ...[
                   const SizedBox(width: 8),
                   Container(
@@ -399,8 +494,8 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               'Semua aktivitas grup dan pengingat\nakan muncul di sini.',
-              style:
-                  AppTypography.body.copyWith(color: AppColors.textSecondary),
+              style: AppTypography.body
+                  .copyWith(color: AppColors.textSecondary),
               textAlign: TextAlign.center,
             ),
           ],
@@ -421,13 +516,14 @@ class _ErrorState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.cloud_off_rounded, size: 48, color: AppColors.negative),
+          Icon(Icons.cloud_off_rounded,
+              size: 48, color: AppColors.negative),
           const SizedBox(height: 16),
           Text('Aduh, ada gangguan.', style: AppTypography.h2),
           const SizedBox(height: 8),
           Text('Coba lagi ya.',
-              style:
-                  AppTypography.body.copyWith(color: AppColors.textSecondary)),
+              style: AppTypography.body
+                  .copyWith(color: AppColors.textSecondary)),
           const SizedBox(height: 24),
           OutlinedButton.icon(
             onPressed: onRetry,

@@ -308,7 +308,7 @@ class NotificationService {
       scheduledDate.month,
       scheduledDate.day,
       7,
-      15,
+      15, 
     );
 
     // Kalau sudah lewat, skip

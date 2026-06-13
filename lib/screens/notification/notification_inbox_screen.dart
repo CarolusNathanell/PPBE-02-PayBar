@@ -505,7 +505,7 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-// Error state
+// Error state 
 class _ErrorState extends StatelessWidget {
   final VoidCallback onRetry;
   const _ErrorState({required this.onRetry});

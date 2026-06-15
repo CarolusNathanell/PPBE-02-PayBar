@@ -41,7 +41,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         email: _emailController.text,
         password: _passwordController.text,
       );
-      // StreamBuilder di main.dart otomatis redirect ke HomeScreen
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       _showError(_mapFirebaseError(e.code));

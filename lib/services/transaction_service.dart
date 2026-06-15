@@ -66,6 +66,10 @@ class TransactionService {
   /// [amountsInIdr] opsional — sediakan jika amount transaksi perlu
   /// dikonversi dulu ke IDR (urutannya harus sejajar dengan [transactions]).
   /// Tanpa parameter ini, `tx.amount` dipakai apa adanya (anggap sudah IDR).
+  ///
+  /// Pembayaran yang sudah dikonfirmasi (`tx.paidAmounts`) dikurangkan dari
+  /// tagihan masing-masing anggota, jadi pelunasan sebagian (partial) ikut
+  /// mengurangi saldo hutang meski belum lunas total.
   static Map<String, double> calculateBalances(
     List<TransactionModel> transactions, {
     List<double>? amountsInIdr,
@@ -78,6 +82,8 @@ class TransactionService {
       // amount: gunakan nilai IDR jika tersedia (untuk transaksi non-IDR),
       // fallback ke tx.amount apa adanya.
       final amount = amountsInIdr != null ? amountsInIdr[i] : tx.amount;
+      // Skala konversi IDR, dipakai juga untuk mengonversi paidAmounts.
+      final scale = tx.amount > 0 ? amount / tx.amount : 1.0;
 
       for (final uid in tx.participants) {
         if (uid == tx.paidBy) continue;
@@ -91,10 +97,29 @@ class TransactionService {
           share = amount / tx.participants.length;
         }
 
-        balances[uid] = (balances[uid] ?? 0) - share;
-        balances[tx.paidBy] = (balances[tx.paidBy] ?? 0) + share;
+        // Kurangi pembayaran yang sudah terkonfirmasi (partial/full).
+        final paid = (tx.paidAmounts[uid] ?? 0) * scale;
+        final remaining = share - paid;
+
+        balances[uid] = (balances[uid] ?? 0) - remaining;
+        balances[tx.paidBy] = (balances[tx.paidBy] ?? 0) + remaining;
       }
     }
     return balances;
+  }
+
+  /// Catat pembayaran yang sudah dikonfirmasi penerima ke transaksi terkait,
+  /// supaya Rekapitulasi langsung mencerminkan pelunasan sebagian/penuh.
+  /// [delta] positif saat settlement dikonfirmasi, negatif saat dibatalkan
+  /// (unconfirm).
+  Future<void> adjustPaidAmount(
+    String groupId,
+    String txId,
+    String uid,
+    double delta,
+  ) {
+    return _txRef(groupId).doc(txId).update({
+      'paidAmounts.$uid': FieldValue.increment(delta),
+    });
   }
 }

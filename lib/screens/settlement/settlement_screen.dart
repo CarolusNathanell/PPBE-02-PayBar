@@ -777,12 +777,14 @@ class _CreateSettlementSheetState extends State<_CreateSettlementSheet> {
                   );
                 }
 
-                // Filter: hanya transaksi yang melibatkan currentUser sebagai participant
-                // dan paidBy bukan currentUser (berarti currentUser punya hutang)
+                // Filter: hanya transaksi yang melibatkan currentUser sebagai participant,
+                // paidBy bukan currentUser (berarti currentUser punya hutang), dan masih
+                // ada sisa tagihan (belum lunas lewat pelunasan terkonfirmasi sebelumnya).
                 final txList = (snapshot.data ?? [])
                     .where((tx) =>
                         tx.participants.contains(widget.currentUid) &&
-                        tx.paidBy != widget.currentUid)
+                        tx.paidBy != widget.currentUid &&
+                        tx.remainingFor(widget.currentUid) > 1)
                     .toList();
 
                 if (txList.isEmpty) {
@@ -820,9 +822,11 @@ class _CreateSettlementSheetState extends State<_CreateSettlementSheet> {
                       return InkWell(
                         onTap: () => setState(() {
                           _selectedTx = tx;
-                          // Auto-isi jumlah dengan porsi user
-                          _amountController.text =
-                              tx.perPerson.toStringAsFixed(0);
+                          // Auto-isi jumlah dengan sisa tagihan user
+                          // (memperhitungkan custom split & pelunasan terkonfirmasi sebelumnya)
+                          _amountController.text = tx
+                              .remainingFor(widget.currentUid)
+                              .toStringAsFixed(0);
                         }),
                         borderRadius: BorderRadius.circular(12),
                         child: Container(
@@ -861,10 +865,20 @@ class _CreateSettlementSheetState extends State<_CreateSettlementSheet> {
                                       style: AppTypography.body.copyWith(
                                           fontWeight: FontWeight.w500),
                                     ),
-                                    Text(
-                                      'Dibayar ${_nameOf(tx.paidBy)} · Rp ${tx.perPerson.toStringAsFixed(0)} / org',
-                                      style: AppTypography.caption,
-                                    ),
+                                    Builder(builder: (_) {
+                                      final share =
+                                          tx.splitFor(widget.currentUid);
+                                      final remaining = tx
+                                          .remainingFor(widget.currentUid);
+                                      final hasPartialPaid =
+                                          remaining < share - 1;
+                                      return Text(
+                                        hasPartialPaid
+                                            ? 'Dibayar ${_nameOf(tx.paidBy)} · Sisa Rp ${remaining.toStringAsFixed(0)} dari Rp ${share.toStringAsFixed(0)}'
+                                            : 'Dibayar ${_nameOf(tx.paidBy)} · Tagihan kamu Rp ${share.toStringAsFixed(0)}',
+                                        style: AppTypography.caption,
+                                      );
+                                    }),
                                   ],
                                 ),
                               ),

@@ -1,10 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:paybar_app/models/settlement_model.dart';
+import 'package:paybar_app/services/transaction_service.dart';
 
 class SettlementService {
   final _firestore = FirebaseFirestore.instance;
   final _auth = FirebaseAuth.instance;
+  final _transactionService = TransactionService();
 
   String get _uid => _auth.currentUser!.uid;
 
@@ -68,6 +70,10 @@ class SettlementService {
 
   /// Konfirmasi pembayaran — hanya bisa dilakukan oleh toUid (penerima / paidBy).
   /// Melempar [Exception] jika currentUser bukan penerima.
+  ///
+  /// Setelah dikonfirmasi, nominal settlement (bisa pelunasan sebagian/partial)
+  /// dicatat ke `paidAmounts` transaksi terkait supaya Rekapitulasi langsung
+  /// mengurangi tagihan fromUid.
   Future<void> confirmSettlement(
       String groupId, String settlementId) async {
     final doc =
@@ -82,9 +88,17 @@ class SettlementService {
       'settled': true,
       'settledAt': FieldValue.serverTimestamp(),
     });
+
+    final String transactionId = data['transactionId'] as String;
+    final String fromUid = data['fromUid'] as String;
+    final double amount = (data['amount'] as num).toDouble();
+    await _transactionService.adjustPaidAmount(
+        groupId, transactionId, fromUid, amount);
   }
 
   /// Batalkan konfirmasi — hanya oleh toUid, selama settled == true.
+  /// Nominal yang sebelumnya dicatat ke `paidAmounts` dikembalikan lagi
+  /// supaya Rekapitulasi tetap konsisten dengan status settlement.
   Future<void> unconfirmSettlement(
       String groupId, String settlementId) async {
     final doc =
@@ -98,6 +112,12 @@ class SettlementService {
       'settled': false,
       'settledAt': null,
     });
+
+    final String transactionId = data['transactionId'] as String;
+    final String fromUid = data['fromUid'] as String;
+    final double amount = (data['amount'] as num).toDouble();
+    await _transactionService.adjustPaidAmount(
+        groupId, transactionId, fromUid, -amount);
   }
 
   /// Hapus settlement — hanya bisa oleh fromUid dan selama belum dikonfirmasi.

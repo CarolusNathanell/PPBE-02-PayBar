@@ -8,6 +8,9 @@ class SettlementModel {
   final double amount;
   final bool settled;         // false = menunggu konfirmasi penerima, true = lunas
   final DateTime? settledAt;  // diisi saat confirmed
+  
+  /// Diupload oleh fromUid sebagai bukti kepada toUid.
+  final String? receiptUrl;
 
   const SettlementModel({
     required this.settlementId,
@@ -17,6 +20,7 @@ class SettlementModel {
     required this.amount,
     required this.settled,
     this.settledAt,
+    this.receiptUrl,
   });
 
   /// Settlement sudah dikonfirmasi oleh penerima
@@ -37,6 +41,7 @@ class SettlementModel {
       settledAt: d['settledAt'] != null
           ? (d['settledAt'] as Timestamp).toDate()
           : null,
+      receiptUrl: d['receiptUrl'] as String?,
     );
   }
 
@@ -48,6 +53,7 @@ class SettlementModel {
         'settled': settled,
         'settledAt':
             settledAt != null ? Timestamp.fromDate(settledAt!) : null,
+        if (receiptUrl != null) 'receiptUrl': receiptUrl,
       };
 
   SettlementModel copyWith({
@@ -58,6 +64,7 @@ class SettlementModel {
     double? amount,
     bool? settled,
     DateTime? settledAt,
+    String? receiptUrl,
   }) =>
       SettlementModel(
         settlementId: settlementId ?? this.settlementId,
@@ -67,5 +74,6 @@ class SettlementModel {
         amount: amount ?? this.amount,
         settled: settled ?? this.settled,
         settledAt: settledAt ?? this.settledAt,
+        receiptUrl: receiptUrl ?? this.receiptUrl,
       );
 }

@@ -17,6 +17,8 @@ class TransactionModel {
   // Diupdate saat settlement untuk uid tersebut dikonfirmasi penerima.
   final Map<String, double> paidAmounts;
 
+  final String? receiptUrl;
+
   const TransactionModel({
     required this.id,
     required this.groupId,
@@ -28,6 +30,7 @@ class TransactionModel {
     required this.createdAt,
     this.splits = const {},
     this.paidAmounts = const {},
+    this.receiptUrl,
   });
 
   bool get isEqualSplit => splits.isEmpty;
@@ -62,6 +65,7 @@ class TransactionModel {
       paidAmounts: (d['paidAmounts'] as Map<String, dynamic>?)
               ?.map((k, v) => MapEntry(k, (v as num).toDouble())) ??
           {},
+      receiptUrl: d['receiptUrl'] as String?,
     );
   }
 
@@ -76,6 +80,7 @@ class TransactionModel {
         // Simpan splits hanya jika tidak sama rata; hemat storage.
         if (splits.isNotEmpty) 'splits': splits,
         if (paidAmounts.isNotEmpty) 'paidAmounts': paidAmounts,
+        if (receiptUrl != null) 'receiptUrl': receiptUrl,
       };
 
   TransactionModel copyWith({
@@ -89,6 +94,7 @@ class TransactionModel {
     DateTime? createdAt,
     Map<String, double>? splits,
     Map<String, double>? paidAmounts,
+    String? receiptUrl,
   }) =>
       TransactionModel(
         id: id ?? this.id,
@@ -101,5 +107,6 @@ class TransactionModel {
         createdAt: createdAt ?? this.createdAt,
         splits: splits ?? this.splits,
         paidAmounts: paidAmounts ?? this.paidAmounts,
+        receiptUrl: receiptUrl ?? this.receiptUrl,
       );
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:paybar_app/screens/auth/profile_screen.dart';
 import 'package:paybar_app/screens/home/nav_index.dart';
 import 'package:paybar_app/screens/group/group_list_screen.dart';
 import 'package:paybar_app/screens/notification/notification_inbox_screen.dart';
@@ -46,7 +47,6 @@ class _HomeScreenState extends State<HomeScreen> {
         onPushToGrup: _pushToGrup,
         onLogout: AuthService().signOut,
       ),
-
       Navigator(
         key: _grupNavKey,
         onGenerateRoute: (_) => MaterialPageRoute(
@@ -55,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       const ReminderScreen(),
       const NotificationInboxScreen(),
+      const ProfileScreen(),
     ];
 
     return PopScope(

@@ -20,9 +20,8 @@ import 'dart:convert';
 // ---------------------------------------------------------------------------
 
 class CloudinaryConfig {
-  // TODO: Ganti dengan nilai dari Cloudinary Dashboard sebelum build
   static const cloudName = 'dxxkk3cwr';
-  static const uploadPreset = '897ce218-a6ce-4b80-8553-92f9219817f4';
+  static const uploadPreset = 'PayBar_preset';
 
   static String get uploadUrl =>
       'https://api.cloudinary.com/v1_1/$cloudName/image/upload';

@@ -5,10 +5,12 @@ import 'package:paybar_app/core/theme/app_typography.dart';
 import 'package:paybar_app/models/transaction_model.dart';
 import 'package:paybar_app/services/currency_service.dart';
 import 'package:paybar_app/services/transaction_service.dart';
+import 'package:paybar_app/widgets/receipt_picker_widget.dart';
 
 class TransactionScreen extends StatefulWidget {
   final String groupId;
   final Map<String, String> memberNames; // uid → name
+  final Map<String, Map<String, String>> bankDetails;
   final String currentUserUid;
   final TransactionModel? existing;
 
@@ -17,6 +19,7 @@ class TransactionScreen extends StatefulWidget {
     required this.groupId,
     required this.memberNames,
     required this.currentUserUid,
+    required this.bankDetails,
     this.existing,
   });
 
@@ -42,6 +45,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
   bool _isConverting = false;
   bool _isSaving = false;
   Timer? _debounce;
+  String? _pendingReceiptUrl;
 
   @override
   void initState() {
@@ -95,6 +99,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
     _debounce?.cancel();
     super.dispose();
   }
+
+  Map<String, String> _bankDetailsOf(String uid) => widget.bankDetails[uid] ?? <String, String>{"...": "..."};
 
   String _formatSplitValue(double v) {
     if (v == v.roundToDouble()) return v.toInt().toString();
@@ -206,6 +212,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
         participants: _selectedParticipants.toList(),
         createdAt: widget.existing?.createdAt ?? DateTime.now(),
         splits: finalSplits,
+        receiptUrl: _pendingReceiptUrl,
       );
 
       if (widget.existing == null) {
@@ -360,6 +367,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
                     .toList(),
                 onChanged: (val) => setState(() => _selectedPaidBy = val!),
               ),
+              const SizedBox(height: 4),
+              Text("${_bankDetailsOf(_selectedPaidBy).keys.first}: ${_bankDetailsOf(_selectedPaidBy).values.first}"),
+
               const SizedBox(height: 20),
 
               // ── Dibagi ke siapa + nominal per orang ───────────────────
@@ -457,7 +467,15 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 ),
               ],
 
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
+              ReceiptPickerWidget(
+                groupId: widget.groupId,
+                docId: (widget.existing?.id ?? ""),  // kosong saat create
+                type: ReceiptType.transaction,
+                onUploaded: (url) => setState(() => _pendingReceiptUrl = url),
+              ),
+
+              const SizedBox(height: 24),
               ElevatedButton(
                 onPressed: _isSaving ? null : _submit,
                 child: _isSaving

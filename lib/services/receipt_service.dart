@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:paybar_app/services/cloudinary_service.dart';
+import 'package:paybar_app/widgets/receipt_picker_widget.dart'
+    show ReceiptType;
 
 // ---------------------------------------------------------------------------
 // RECEIPT SERVICE
@@ -21,6 +23,21 @@ class ReceiptService {
   final _auth = FirebaseAuth.instance;
 
   String get _uid => _auth.currentUser!.uid;
+
+  /// Upload ke Cloudinary saja tanpa update Firestore.
+  /// Dipakai saat dokumen (transaksi/settlement) belum dibuat —
+  /// parent menyimpan URL sementara, lalu pass ke toFirestore() saat save.
+  Future<String> uploadToCloudinaryOnly(
+    File imageFile, {
+    required String groupId,
+    required ReceiptType type,
+  }) async {
+    final folder = type == ReceiptType.transaction
+        ? 'paybar/receipts/transactions/$groupId'
+        : 'paybar/receipts/settlements/$groupId';
+    final result = await _cloudinary.uploadReceipt(imageFile, folder: folder);
+    return result.secureUrl;
+  }
 
   // ── TRANSACTION ──────────────────────────────────────────────────────────
 

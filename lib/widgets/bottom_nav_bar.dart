@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:paybar_app/core/theme/app_colors.dart';
-import 'package:paybar_app/models/notification_model.dart';
 import 'package:paybar_app/services/notification_service.dart';
 
 class PayBarNavBar extends StatefulWidget {
@@ -65,6 +64,12 @@ class _PayBarNavBarState extends State<PayBarNavBar> {
           selectedIcon:
               const Icon(Icons.inbox_rounded, color: AppColors.primary),
           label: 'Notifikasi',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.person_outline),
+          selectedIcon:
+              Icon(Icons.person, color: AppColors.primary),
+          label: 'Profile',
         ),
       ],
     );

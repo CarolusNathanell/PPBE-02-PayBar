@@ -98,4 +98,17 @@ class GroupService {
     }
     return names;
   }
+
+  // Batch-read detail bank dari koleksi users
+  Future<Map<String, Map<String, String>>> getBankDetails(List<String> uids) async {
+    final bankDetails = <String, Map<String, String>>{};
+    for (final uid in uids) {
+      final doc = await _firestore.collection('users').doc(uid).get();
+      if (doc.exists) {
+        bankDetails[uid] = ({(doc.data() as Map)['bankName'] ?? '...' : (doc.data() as Map)['accountNumber'] ?? '...'} );
+        // bankDetails[uid] = (doc.data() as Map)['accountNumber'] ?? '...';
+      }
+    }
+    return bankDetails;
+  }
 }

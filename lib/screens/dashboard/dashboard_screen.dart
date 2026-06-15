@@ -7,6 +7,7 @@ import 'package:paybar_app/core/theme/app_typography.dart';
 import 'package:paybar_app/models/group_model.dart';
 import 'package:paybar_app/models/transaction_model.dart';
 import 'package:paybar_app/screens/group/group_detail_screen.dart';
+import 'package:paybar_app/screens/home/nav_index.dart';
 import 'package:paybar_app/services/currency_service.dart';
 import 'package:paybar_app/services/group_service.dart';
 import 'package:paybar_app/services/transaction_service.dart';
@@ -468,6 +469,7 @@ class _DashboardBody extends StatelessWidget {
                 onSelected: (val) {
                   switch (val) {
                     case 'edit':
+                      onNavigateTo!(NavIndex.editProfile);
                     case 'logout':
                       onLogout!();
                   }
@@ -660,14 +662,14 @@ class _NetMiniCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.18),
+        color: Colors.white.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(10),
       ),
       padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: Colors.white.withOpacity(0.85), size: 18),
+          Icon(icon, color: Colors.white.withValues(alpha: 0.85), size: 18),
           const SizedBox(height: 4),
           Text(
             label,

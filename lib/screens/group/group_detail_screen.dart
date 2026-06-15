@@ -10,6 +10,7 @@ import 'package:paybar_app/services/group_service.dart';
 import 'package:paybar_app/services/transaction_service.dart';
 import 'package:paybar_app/screens/transaction/transaction_screen.dart';
 import 'package:paybar_app/screens/settlement/settlement_screen.dart';
+import 'package:paybar_app/widgets/receipt_picker_widget.dart';
 
 class GroupDetailScreen extends StatefulWidget {
   final String groupId;
@@ -24,6 +25,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
   final _groupService = GroupService();
   final _txService = TransactionService();
   Map<String, String> _memberNames = {};
+  Map<String, Map<String, String>> _bankDetails = {};
   List<String> _lastMemberIds = [];
 
   // Reload nama anggota hanya jika daftar member berubah
@@ -36,6 +38,10 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     _groupService.getMemberNames(currentIds).then((names) {
       if (mounted) setState(() => _memberNames = names);
     });
+    
+    _groupService.getBankDetails(currentIds).then((names) {
+      if (mounted) setState(() => _bankDetails = names);
+    });
   }
 
   void _openTransactionForm(BuildContext context, {TransactionModel? existing}) {
@@ -45,6 +51,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
         builder: (_) => TransactionScreen(
           groupId: widget.groupId,
           memberNames: _memberNames,
+          bankDetails: _bankDetails,
           currentUserUid: FirebaseAuth.instance.currentUser!.uid,
           existing: existing,
         ),
@@ -59,6 +66,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
         builder: (_) => SettlementScreen(
           groupId: widget.groupId,
           memberNames: _memberNames,
+          bankDetails: _bankDetails,
         ),
       ),
     );
@@ -440,6 +448,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                               existing: transactions[i]),
                           onDelete: () =>
                               _confirmDeleteTransaction(context, transactions[i]),
+                          groupId: widget.groupId,
                         ),
                         childCount: transactions.length,
                       ),
@@ -673,6 +682,7 @@ class _TransactionCard extends StatelessWidget {
   final int index;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final String groupId;
 
   const _TransactionCard({
     required this.tx,
@@ -680,6 +690,7 @@ class _TransactionCard extends StatelessWidget {
     required this.index,
     required this.onEdit,
     required this.onDelete,
+    required this.groupId
   });
 
   static const _accentColors = [
@@ -765,6 +776,15 @@ class _TransactionCard extends StatelessWidget {
                               style: AppTypography.caption.copyWith(
                                   color: AppColors.primary),
                             ),
+                            if(tx.receiptUrl != null) const SizedBox(height: 4),
+                            if(tx.receiptUrl != null)
+                              ReceiptPickerWidget(
+                                groupId: groupId,
+                                docId: tx.id,
+                                type: ReceiptType.transaction,
+                                existingUrl: tx.receiptUrl,
+                                readOnly: true,
+                              )
                           ],
                         ),
                       ),

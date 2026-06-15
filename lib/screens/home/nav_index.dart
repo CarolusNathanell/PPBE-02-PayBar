@@ -9,4 +9,5 @@ class NavIndex {
   static const grup = 1;
   static const reminder = 2;
   static const notifikasi = 3;
+  static const editProfile = 4;
 }

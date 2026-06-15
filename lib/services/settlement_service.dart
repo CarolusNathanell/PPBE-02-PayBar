@@ -4,7 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:paybar_app/models/settlement_model.dart';
 import 'package:paybar_app/services/transaction_service.dart';
-import 'package:paybar_app/services/receipt_service.dart';
 
 class SettlementService {
   final _firestore = FirebaseFirestore.instance;
@@ -39,19 +38,10 @@ class SettlementService {
     
     final docSnap = await doc.get();
     final data = docSnap.data() as Map<String, dynamic>;
-
-    // ReceiptService receiptService = ReceiptService();
-    // if (data['id'] && imageFile != null) {
-    //   await receiptService.uploadSettlementReceipt(
-    //     groupId: groupId,
-    //     settlementId: data['id'],
-    //     imageFile: imageFile
-    //   );
-    // }
     
     return _settlementRef(groupId).doc(data['id']);
   }
-
+  
   /// Stream semua settlement di grup — diurutkan dari terbaru.
   Stream<List<SettlementModel>> getSettlements(String groupId) {
     return _settlementRef(groupId)

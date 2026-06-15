@@ -7,6 +7,7 @@ import 'package:paybar_app/models/settlement_model.dart';
 import 'package:paybar_app/models/transaction_model.dart';
 import 'package:paybar_app/services/settlement_service.dart';
 import 'package:paybar_app/services/transaction_service.dart';
+import 'package:paybar_app/widgets/receipt_picker_widget.dart';
 
 // ---------------------------------------------------------------------------
 // SETTLEMENT SCREEN
@@ -17,11 +18,13 @@ import 'package:paybar_app/services/transaction_service.dart';
 class SettlementScreen extends StatefulWidget {
   final String groupId;
   final Map<String, String> memberNames; // uid → name
+  final Map<String, Map<String, String>> bankDetails;
 
   const SettlementScreen({
     super.key,
     required this.groupId,
     required this.memberNames,
+    required this.bankDetails
   });
 
   @override
@@ -75,6 +78,7 @@ class _SettlementScreenState extends State<SettlementScreen>
             ),
           );
         },
+        bankDetails: widget.bankDetails,
       ),
     );
   }
@@ -256,6 +260,7 @@ class _SettlementScreenState extends State<SettlementScreen>
                 onConfirm: _confirmSettlement,
                 onUnconfirm: _showUnconfirmDialog,
                 onDelete: _showDeleteDialog,
+                groupId: widget.groupId,
               ),
               // Tab 2: Semua
               _SettlementList(
@@ -269,6 +274,7 @@ class _SettlementScreenState extends State<SettlementScreen>
                 onConfirm: _confirmSettlement,
                 onUnconfirm: _showUnconfirmDialog,
                 onDelete: _showDeleteDialog,
+                groupId: widget.groupId,
               ),
             ],
           );
@@ -300,6 +306,7 @@ class _SettlementList extends StatelessWidget {
   final Future<void> Function(SettlementModel) onConfirm;
   final void Function(SettlementModel) onUnconfirm;
   final void Function(SettlementModel) onDelete;
+  final String groupId;
 
   const _SettlementList({
     required this.settlements,
@@ -311,6 +318,7 @@ class _SettlementList extends StatelessWidget {
     required this.onConfirm,
     required this.onUnconfirm,
     required this.onDelete,
+    required this.groupId,
   });
 
   @override
@@ -333,6 +341,7 @@ class _SettlementList extends StatelessWidget {
         onConfirm: () => onConfirm(settlements[i]),
         onUnconfirm: () => onUnconfirm(settlements[i]),
         onDelete: () => onDelete(settlements[i]),
+        groupId: groupId,
       ),
     );
   }
@@ -349,6 +358,7 @@ class _SettlementCard extends StatefulWidget {
   final VoidCallback onConfirm;
   final VoidCallback onUnconfirm;
   final VoidCallback onDelete;
+  final String groupId;
 
   const _SettlementCard({
     required this.settlement,
@@ -357,6 +367,7 @@ class _SettlementCard extends StatefulWidget {
     required this.onConfirm,
     required this.onUnconfirm,
     required this.onDelete,
+    required this.groupId,
   });
 
   @override
@@ -458,11 +469,19 @@ class _SettlementCardState extends State<_SettlementCard> {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      // Timestamp
                       _StatusChip(settlement: s),
+                      const SizedBox(height: 4),
+                      ReceiptPickerWidget(
+                        groupId: widget.groupId,
+                        docId: s.settlementId,
+                        type: ReceiptType.settlement,
+                        existingUrl: s.receiptUrl,
+                        readOnly: !isFromMe,
+                      ),
                     ],
                   ),
                 ),
+
                 // Overflow menu
                 if (canDelete || canUnconfirm)
                   PopupMenuButton<String>(
@@ -651,6 +670,7 @@ class _CreateSettlementSheet extends StatefulWidget {
   final TransactionService txService;
   final SettlementService settlementService;
   final VoidCallback onCreated;
+  final Map<String, Map<String, String>> bankDetails;
 
   const _CreateSettlementSheet({
     required this.groupId,
@@ -659,6 +679,7 @@ class _CreateSettlementSheet extends StatefulWidget {
     required this.txService,
     required this.settlementService,
     required this.onCreated,
+    required this.bankDetails,
   });
 
   @override
@@ -674,6 +695,8 @@ class _CreateSettlementSheetState extends State<_CreateSettlementSheet> {
   bool _isSaving = false;
 
   String _nameOf(String uid) => widget.memberNames[uid] ?? '...';
+
+  Map<String, String> _bankDetailsOf(String uid) => widget.bankDetails[uid] ?? <String, String>{"...": "..."};
 
   @override
   void dispose() {
@@ -914,6 +937,9 @@ class _CreateSettlementSheetState extends State<_CreateSettlementSheet> {
                 return null;
               },
             ),
+            if(_selectedTx != null) const SizedBox(height: 4),
+            if(_selectedTx != null)
+              Text("${_bankDetailsOf(_selectedTx!.paidBy).keys.first}: ${_bankDetailsOf(_selectedTx!.paidBy).values.first}"),
             const SizedBox(height: 24),
 
             // Tombol submit

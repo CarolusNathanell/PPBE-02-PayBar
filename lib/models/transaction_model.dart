@@ -13,6 +13,10 @@ class TransactionModel {
   // Map kosong berarti bagi sama rata (amount / participants.length).
   final Map<String, double> splits;
 
+  // uid -> total pembayaran yang sudah dikonfirmasi (dalam currency transaksi).
+  // Diupdate saat settlement untuk uid tersebut dikonfirmasi penerima.
+  final Map<String, double> paidAmounts;
+
   const TransactionModel({
     required this.id,
     required this.groupId,
@@ -23,6 +27,7 @@ class TransactionModel {
     required this.participants,
     required this.createdAt,
     this.splits = const {},
+    this.paidAmounts = const {},
   });
 
   bool get isEqualSplit => splits.isEmpty;
@@ -33,6 +38,10 @@ class TransactionModel {
   // Tagihan orang tertentu: pakai splits jika ada, fallback ke sama rata.
   double splitFor(String uid) =>
       splits.isEmpty ? perPerson : (splits[uid] ?? 0);
+
+  // Sisa tagihan orang tertentu setelah dikurangi pembayaran terkonfirmasi.
+  double remainingFor(String uid) =>
+      splitFor(uid) - (paidAmounts[uid] ?? 0);
 
   factory TransactionModel.fromFirestore(DocumentSnapshot doc) {
     final d = doc.data() as Map<String, dynamic>;
@@ -50,6 +59,9 @@ class TransactionModel {
       splits: (d['splits'] as Map<String, dynamic>?)
               ?.map((k, v) => MapEntry(k, (v as num).toDouble())) ??
           {},
+      paidAmounts: (d['paidAmounts'] as Map<String, dynamic>?)
+              ?.map((k, v) => MapEntry(k, (v as num).toDouble())) ??
+          {},
     );
   }
 
@@ -63,6 +75,7 @@ class TransactionModel {
         'createdAt': Timestamp.fromDate(createdAt),
         // Simpan splits hanya jika tidak sama rata; hemat storage.
         if (splits.isNotEmpty) 'splits': splits,
+        if (paidAmounts.isNotEmpty) 'paidAmounts': paidAmounts,
       };
 
   TransactionModel copyWith({
@@ -75,6 +88,7 @@ class TransactionModel {
     List<String>? participants,
     DateTime? createdAt,
     Map<String, double>? splits,
+    Map<String, double>? paidAmounts,
   }) =>
       TransactionModel(
         id: id ?? this.id,
@@ -86,5 +100,6 @@ class TransactionModel {
         participants: participants ?? this.participants,
         createdAt: createdAt ?? this.createdAt,
         splits: splits ?? this.splits,
+        paidAmounts: paidAmounts ?? this.paidAmounts,
       );
 }

@@ -1,19 +1,17 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:paybar_app/core/theme/app_colors.dart';
 import 'package:paybar_app/core/theme/app_typography.dart';
 import 'package:paybar_app/models/settlement_model.dart';
 import 'package:paybar_app/models/transaction_model.dart';
+import 'package:paybar_app/services/currency_service.dart';
 import 'package:paybar_app/services/settlement_service.dart';
 import 'package:paybar_app/services/transaction_service.dart';
 import 'package:paybar_app/widgets/receipt_picker_widget.dart';
-
-// ---------------------------------------------------------------------------
-// SETTLEMENT SCREEN
-// Menampilkan daftar settlement dalam satu grup.
-// Terbagi dalam dua tab: "Perlu Konfirmasi" dan "Semua".
-// ---------------------------------------------------------------------------
 
 class SettlementScreen extends StatefulWidget {
   final String groupId;
@@ -55,8 +53,6 @@ class _SettlementScreenState extends State<SettlementScreen>
 
   void _retry() => setState(() => _streamKey = UniqueKey());
 
-  // ── Buat Settlement ────────────────────────────────────────────────────────
-
   void _showCreateBottomSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -83,8 +79,6 @@ class _SettlementScreenState extends State<SettlementScreen>
     );
   }
 
-  // ── Konfirmasi ─────────────────────────────────────────────────────────────
-
   Future<void> _confirmSettlement(SettlementModel s) async {
     try {
       await _settlementService.confirmSettlement(
@@ -105,8 +99,6 @@ class _SettlementScreenState extends State<SettlementScreen>
           .showSnackBar(SnackBar(content: Text(msg)));
     }
   }
-
-  // ── Batalkan Konfirmasi ────────────────────────────────────────────────────
 
   void _showUnconfirmDialog(SettlementModel s) {
     showDialog(
@@ -150,8 +142,6 @@ class _SettlementScreenState extends State<SettlementScreen>
       ),
     );
   }
-
-  // ── Hapus Settlement ───────────────────────────────────────────────────────
 
   void _showDeleteDialog(SettlementModel s) {
     showDialog(
@@ -203,8 +193,6 @@ class _SettlementScreenState extends State<SettlementScreen>
     );
   }
 
-  // ── Build ──────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -249,7 +237,6 @@ class _SettlementScreenState extends State<SettlementScreen>
           return TabBarView(
             controller: _tabController,
             children: [
-              // Tab 1: Perlu Konfirmasi
               _SettlementList(
                 settlements: pending,
                 currentUid: _currentUid,
@@ -262,7 +249,6 @@ class _SettlementScreenState extends State<SettlementScreen>
                 onDelete: _showDeleteDialog,
                 groupId: widget.groupId,
               ),
-              // Tab 2: Semua
               _SettlementList(
                 settlements: all,
                 currentUid: _currentUid,
@@ -291,10 +277,6 @@ class _SettlementScreenState extends State<SettlementScreen>
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// SETTLEMENT LIST
-// ---------------------------------------------------------------------------
 
 class _SettlementList extends StatelessWidget {
   final List<SettlementModel> settlements;
@@ -347,10 +329,6 @@ class _SettlementList extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// SETTLEMENT CARD
-// ---------------------------------------------------------------------------
-
 class _SettlementCard extends StatefulWidget {
   final SettlementModel settlement;
   final String currentUid;
@@ -402,13 +380,11 @@ class _SettlementCardState extends State<_SettlementCard> {
       ),
       child: Column(
         children: [
-          // ── Header card ──────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 12, 12),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Icon status
                 Container(
                   width: 44,
                   height: 44,
@@ -427,12 +403,10 @@ class _SettlementCardState extends State<_SettlementCard> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                // Info pembayaran
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Dari → ke
                       RichText(
                         text: TextSpan(
                           style: AppTypography.body,
@@ -460,7 +434,6 @@ class _SettlementCardState extends State<_SettlementCard> {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      // Nominal
                       Text(
                         _formatRupiahFull(s.amount),
                         style: AppTypography.nominal.copyWith(
@@ -482,7 +455,6 @@ class _SettlementCardState extends State<_SettlementCard> {
                   ),
                 ),
 
-                // Overflow menu
                 if (canDelete || canUnconfirm)
                   PopupMenuButton<String>(
                     icon: Icon(Icons.more_vert_rounded,
@@ -538,7 +510,6 @@ class _SettlementCardState extends State<_SettlementCard> {
             ),
           ),
 
-          // ── Tombol konfirmasi (hanya untuk toUid & pending) ───────────────
           if (canConfirm) ...[
             const Divider(height: 1, color: AppColors.border),
             Padding(
@@ -578,7 +549,6 @@ class _SettlementCardState extends State<_SettlementCard> {
             ),
           ],
 
-          // ── Label "Menunggu konfirmasi" untuk pengirim ────────────────────
           if (isFromMe && isPending) ...[
             const Divider(height: 1, color: AppColors.border),
             Padding(
@@ -603,10 +573,6 @@ class _SettlementCardState extends State<_SettlementCard> {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// STATUS CHIP
-// ---------------------------------------------------------------------------
 
 class _StatusChip extends StatelessWidget {
   final SettlementModel settlement;
@@ -658,11 +624,7 @@ class _StatusChip extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// CREATE SETTLEMENT BOTTOM SHEET
 // Memilih transaksi yang mau di-settle, lalu input jumlah.
-// ---------------------------------------------------------------------------
-
 class _CreateSettlementSheet extends StatefulWidget {
   final String groupId;
   final Map<String, String> memberNames;
@@ -690,18 +652,62 @@ class _CreateSettlementSheet extends StatefulWidget {
 class _CreateSettlementSheetState extends State<_CreateSettlementSheet> {
   final _amountController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  final _currencyService = CurrencyService();
 
   TransactionModel? _selectedTx;
   bool _isSaving = false;
+
+  double? _idrEquivalent;
+  bool _isConverting = false;
+  Timer? _debounce;
 
   String _nameOf(String uid) => widget.memberNames[uid] ?? '...';
 
   Map<String, String> _bankDetailsOf(String uid) => widget.bankDetails[uid] ?? <String, String>{"...": "..."};
 
+  Future<void> _copyAccountNumber(String accountNumber) async {
+    await Clipboard.setData(ClipboardData(text: accountNumber));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Nomor rekening disalin')),
+    );
+  }
+
   @override
   void dispose() {
     _amountController.dispose();
+    _debounce?.cancel();
     super.dispose();
+  }
+
+  // Konversi ke IDR untuk transaksi non-IDR, supaya user tahu nominal transfer sebenarnya.
+  void _onAmountChanged() {
+    final tx = _selectedTx;
+    if (tx == null || tx.currency == 'IDR') {
+      setState(() => _idrEquivalent = null);
+      return;
+    }
+    final amount =
+        double.tryParse(_amountController.text.trim().replaceAll(',', ''));
+    if (amount == null || amount <= 0) {
+      setState(() => _idrEquivalent = null);
+      return;
+    }
+    _debounce?.cancel();
+    _debounce = Timer(
+        const Duration(milliseconds: 500), () => _fetchConversion(amount, tx.currency));
+  }
+
+  Future<void> _fetchConversion(double amount, String currency) async {
+    setState(() => _isConverting = true);
+    try {
+      final idr = await _currencyService.convertToIdr(amount, currency);
+      if (mounted) setState(() => _idrEquivalent = idr);
+    } catch (_) {
+      if (mounted) setState(() => _idrEquivalent = null);
+    } finally {
+      if (mounted) setState(() => _isConverting = false);
+    }
   }
 
   Future<void> _submit() async {
@@ -754,7 +760,6 @@ class _CreateSettlementSheetState extends State<_CreateSettlementSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Handle bar
             Center(
               child: Container(
                 width: 40,
@@ -767,7 +772,6 @@ class _CreateSettlementSheetState extends State<_CreateSettlementSheet> {
             ),
             const SizedBox(height: 20),
 
-            // Title
             Row(
               children: [
                 Container(
@@ -785,7 +789,6 @@ class _CreateSettlementSheetState extends State<_CreateSettlementSheet> {
             ),
             const SizedBox(height: 20),
 
-            // Pilih transaksi
             _FieldLabel('Transaksi yang dibayar'),
             StreamBuilder<List<TransactionModel>>(
               stream: widget.txService.getTransactions(widget.groupId),
@@ -843,14 +846,16 @@ class _CreateSettlementSheetState extends State<_CreateSettlementSheet> {
                     children: txList.map((tx) {
                       final isSelected = _selectedTx?.id == tx.id;
                       return InkWell(
-                        onTap: () => setState(() {
-                          _selectedTx = tx;
-                          // Auto-isi jumlah dengan sisa tagihan user
-                          // (memperhitungkan custom split & pelunasan terkonfirmasi sebelumnya)
-                          _amountController.text = tx
-                              .remainingFor(widget.currentUid)
-                              .toStringAsFixed(0);
-                        }),
+                        onTap: () {
+                          setState(() {
+                            _selectedTx = tx;
+                            // Auto-isi sisa tagihan (memperhitungkan custom split & pelunasan sebelumnya)
+                            _amountController.text = tx
+                                .remainingFor(widget.currentUid)
+                                .toStringAsFixed(0);
+                          });
+                          _onAmountChanged();
+                        },
                         borderRadius: BorderRadius.circular(12),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
@@ -895,10 +900,16 @@ class _CreateSettlementSheetState extends State<_CreateSettlementSheet> {
                                           .remainingFor(widget.currentUid);
                                       final hasPartialPaid =
                                           remaining < share - 1;
+                                      final remainingStr =
+                                          CurrencyService.formatCurrency(
+                                              remaining, tx.currency);
+                                      final shareStr =
+                                          CurrencyService.formatCurrency(
+                                              share, tx.currency);
                                       return Text(
                                         hasPartialPaid
-                                            ? 'Dibayar ${_nameOf(tx.paidBy)} · Sisa Rp ${remaining.toStringAsFixed(0)} dari Rp ${share.toStringAsFixed(0)}'
-                                            : 'Dibayar ${_nameOf(tx.paidBy)} · Tagihan kamu Rp ${share.toStringAsFixed(0)}',
+                                            ? 'Dibayar ${_nameOf(tx.paidBy)} · Sisa $remainingStr dari $shareStr'
+                                            : 'Dibayar ${_nameOf(tx.paidBy)} · Tagihan kamu $shareStr',
                                         style: AppTypography.caption,
                                       );
                                     }),
@@ -916,17 +927,18 @@ class _CreateSettlementSheetState extends State<_CreateSettlementSheet> {
             ),
             const SizedBox(height: 16),
 
-            // Jumlah yang dibayar
             _FieldLabel('Jumlah yang kamu bayar'),
             TextFormField(
               controller: _amountController,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: '0',
-                prefixText: 'Rp ',
-                prefixIcon: Icon(Icons.payments_outlined),
+                prefixText:
+                    '${CurrencyService.currencySymbols[_selectedTx?.currency ?? 'IDR'] ?? 'Rp'} ',
+                prefixIcon: const Icon(Icons.payments_outlined),
               ),
+              onChanged: (_) => _onAmountChanged(),
               validator: (val) {
                 if (val == null || val.trim().isEmpty) {
                   return 'Jumlah wajib diisi';
@@ -937,12 +949,77 @@ class _CreateSettlementSheetState extends State<_CreateSettlementSheet> {
                 return null;
               },
             ),
-            if(_selectedTx != null) const SizedBox(height: 4),
-            if(_selectedTx != null)
-              Text("${_bankDetailsOf(_selectedTx!.paidBy).keys.first}: ${_bankDetailsOf(_selectedTx!.paidBy).values.first}"),
+            // Uang transfer tetap dalam Rupiah, jadi tampilkan estimasi nilainya
+            if (_selectedTx != null && _selectedTx!.currency != 'IDR') ...[
+              const SizedBox(height: 6),
+              _isConverting
+                  ? Row(children: [
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: AppColors.textSecondary),
+                      ),
+                      const SizedBox(width: 8),
+                      Text('Mengonversi ke Rupiah...',
+                          style: AppTypography.caption),
+                    ])
+                  : _idrEquivalent != null
+                      ? Row(children: [
+                          const Icon(Icons.sync_alt_rounded,
+                              size: 14, color: AppColors.primary),
+                          const SizedBox(width: 6),
+                          Text(
+                            '≈ ${CurrencyService.formatCurrency(_idrEquivalent!, 'IDR')} (kurs hari ini)',
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ])
+                      : const SizedBox.shrink(),
+            ],
+            if (_selectedTx != null) ...[
+              const SizedBox(height: 8),
+              Builder(builder: (_) {
+                final details = _bankDetailsOf(_selectedTx!.paidBy);
+                final bankName = details.keys.first;
+                final accountNumber = details.values.first;
+                final hasAccount = accountNumber != '...';
+                return Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.account_balance_outlined,
+                          size: 18, color: AppColors.textSecondary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          '$bankName · $accountNumber',
+                          style: AppTypography.body
+                              .copyWith(fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                      if (hasAccount)
+                        IconButton(
+                          icon: const Icon(Icons.copy_rounded,
+                              size: 18, color: AppColors.primary),
+                          tooltip: 'Salin nomor rekening',
+                          onPressed: () => _copyAccountNumber(accountNumber),
+                        ),
+                    ],
+                  ),
+                );
+              }),
+            ],
             const SizedBox(height: 24),
 
-            // Tombol submit
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -963,10 +1040,6 @@ class _CreateSettlementSheetState extends State<_CreateSettlementSheet> {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// HELPERS
-// ---------------------------------------------------------------------------
 
 String _formatRupiahFull(double amount) {
   final abs = amount.abs().toStringAsFixed(0);
@@ -999,10 +1072,6 @@ class _FieldLabel extends StatelessWidget {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// EMPTY STATE
-// ---------------------------------------------------------------------------
 
 class _EmptyState extends StatelessWidget {
   final IconData icon;
@@ -1048,10 +1117,6 @@ class _EmptyState extends StatelessWidget {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// ERROR STATE
-// ---------------------------------------------------------------------------
 
 class _ErrorState extends StatelessWidget {
   final VoidCallback onRetry;

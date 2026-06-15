@@ -53,17 +53,15 @@ Map<String, double> _calcBalances(
   for (final tx in allTx) {
     if (!tx.participants.contains(currentUid)) continue;
 
-    final perPerson = tx.perPerson;
-
     if (tx.paidBy == currentUid) {
       // Kamu yang bayar → semua participant lain hutang ke kamu
-      for (final uid in tx.participants) {
+      for (String uid in tx.participants) {
         if (uid == currentUid) continue;
-        map[uid] = (map[uid] ?? 0) + perPerson;
+        map[uid] = (map[uid] ?? 0) + tx.remainingFor(uid);
       }
-    } else if (tx.participants.contains(currentUid)) {
+    } else {
       // Orang lain yang bayar → kamu hutang ke paidBy
-      map[tx.paidBy] = (map[tx.paidBy] ?? 0) - perPerson;
+      map[tx.paidBy] = (map[tx.paidBy] ?? 0) - tx.remainingFor(currentUid);
     }
   }
 
@@ -295,9 +293,11 @@ class _DashboardBody extends StatelessWidget {
       stream: _allTransactionsStream(),
       builder: (context, txSnap) {
         final allTx = txSnap.data ?? [];
+        
+        // 1. Calculate live balance map directly from the active transaction stream
         final balanceMap = _calcBalances(currentUid, allTx);
 
-        // Hitung total piutang & utang
+        // 2. Calculate live total credit (piutang) & debit (utang)
         double totalPiutang = 0;
         double totalUtang = 0;
         for (final net in balanceMap.values) {
@@ -308,6 +308,12 @@ class _DashboardBody extends StatelessWidget {
           }
         }
         final netBalance = totalPiutang - totalUtang;
+
+        // 3. Apply the working example's logic: Filter out settled accounts (> Rp1) & Sort
+        final belumBayarEntries = balanceMap.entries
+            .where((e) => e.value > 1) // Only show people who owe you money
+            .toList()
+          ..sort((a, b) => b.value.compareTo(a.value)); // Highest debt first
 
         return CustomScrollView(
           slivers: [
@@ -328,24 +334,23 @@ class _DashboardBody extends StatelessWidget {
             ),
 
             // ── Siapa yang belum bayar ─────────────────────────────────────
-            if (balanceMap.isNotEmpty) ...[
+            if (belumBayarEntries.isNotEmpty) ...[
               SliverToBoxAdapter(
                 child: _buildSectionTitle('Siapa yang belum bayar? 💸'),
               ),
               SliverList(
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
-                    final entry = balanceMap.entries.toList()[index];
+                    final entry = belumBayarEntries[index];
                     return _BalanceListItem(
                       uid: entry.key,
                       net: entry.value,
                       avatarBg: avatarBg(entry.key),
                       avatarFg: avatarFg(entry.key),
-                      // Tampilkan nama grup paling relevan
                       groupHint: _groupHintForUid(entry.key, allTx),
                     );
                   },
-                  childCount: balanceMap.length,
+                  childCount: belumBayarEntries.length,
                 ),
               ),
             ] else if (txSnap.connectionState != ConnectionState.waiting) ...[
@@ -366,37 +371,32 @@ class _DashboardBody extends StatelessWidget {
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
                     final g = groups[index];
-                    // Filter transaksi milik grup ini menggunakan groupId
-                    final groupTx = (txSnap.data ?? [])
-                        .where((tx) => _txBelongsToGroup(tx, g.id))
-                        .toList();
-                    final groupBalance =
-                        _calcBalances(currentUid, groupTx);
-                    final groupNet = groupBalance.values
-                        .fold<double>(0, (s, v) => s + v);
-                    return _GroupListItem(
-                      group: g,
-                      netAmount: groupNet,
-                      onTap: () => onPushToGrup?.call(
-                        GroupDetailScreen(groupId: g.id),
-                      ),
+
+                    // 4. Hook each row to its respective group stream
+                    return StreamBuilder<Map<String, double>>(
+                      stream: txService.getGroupBalances(g.id),
+                      builder: (context, groupBalanceSnap) {
+                        final groupBalances = groupBalanceSnap.data ?? {};
+                        final groupNet = groupBalances[currentUid] ?? 0.0;
+
+                        return _GroupListItem(
+                          group: g,
+                          netAmount: groupNet,
+                          onTap: () => onPushToGrup?.call(
+                            GroupDetailScreen(groupId: g.id),
+                          ),
+                        );
+                      },
                     );
                   },
                   childCount: groups.length,
                 ),
               ),
-
-            // ── TODO: Ringkasan per Bulan ──────────────────────────────────
-            // SliverToBoxAdapter(child: _buildMonthlyChart(allTx)),
- 
-            // ── TODO: Aktivitas Terbaru ────────────────────────────────────
-            // SliverToBoxAdapter(child: _buildRecentActivity(allTx)),
           ],
         );
       },
     );
   }
-
   /// Cari nama grup paling relevan untuk uid tertentu berdasarkan transaksi
   String _groupHintForUid(String uid, List<TransactionModel> allTx) {
     for (final tx in allTx) {

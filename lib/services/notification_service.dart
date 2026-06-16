@@ -230,7 +230,7 @@ class NotificationService {
           // Notif konfirmasi ke pembuat transaksi
           const String title = 'Transaksi Tercatat! ✅';
           final String body =
-              '"$desc" Rp$amount berhasil dicatat di grup $groupName';
+              '"$desc" ${_formatRupiah(amount)} berhasil dicatat di grup $groupName';
 
           await _saveToInbox(
             uid: uid,
@@ -251,7 +251,7 @@ class NotificationService {
 
           const String title = 'Tagihan Baru! 🧾';
           final String body =
-              '$payerName nambahin "$desc" Rp$amount di grup $groupName';
+              '$payerName nambahin "$desc" ${_formatRupiah(amount)} di grup $groupName';
 
           await _saveToInbox(
             uid: uid,
@@ -288,8 +288,9 @@ class NotificationService {
             settlement['createdAt'] as Timestamp? ??
             settlement['settledAt'] as Timestamp?;
 
-        // Kalau sama sekali tidak ada timestamp, tetap proses
-        if (createdAt != null && createdAt.compareTo(startTime) <= 0) continue;
+        // Skip kalau timestamp ada dan lebih lama dari startTime
+        // Skip juga kalau tidak ada timestamp sama sekali (data lama)
+        if (createdAt == null || createdAt.compareTo(startTime) <= 0) continue;
 
         // Hanya notif ke toUid (penerima yang harus konfirmasi)
         final String toUid = settlement['toUid'] as String? ?? '';
@@ -306,7 +307,7 @@ class NotificationService {
 
         const String title = 'Ada Pelunasan Masuk! 💸';
         final String body =
-            '$fromName klaim udah bayar Rp$amount di grup $groupName. Konfirmasi ya!';
+            '$fromName klaim udah bayar ${_formatRupiah(amount)} di grup $groupName. Konfirmasi ya!';
 
         await _saveToInbox(
           uid: uid,
@@ -355,7 +356,7 @@ class NotificationService {
 
         const String title = 'Pelunasan Dikonfirmasi! ✅';
         final String body =
-            '$toName udah konfirmasi pembayaran Rp$amount di grup $groupName';
+            '$toName udah konfirmasi pembayaran ${_formatRupiah(amount)} di grup $groupName';
 
         await _saveToInbox(
           uid: uid,
@@ -563,6 +564,16 @@ class NotificationService {
       type: 'reminder',
     );
   }
+
+  // Helper format rupiah
+  String _formatRupiah(dynamic amount) {
+    final double value = (amount as num?)?.toDouble() ?? 0;
+    final formatted = value.toStringAsFixed(0).replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (m) => '${m[1]}.',
+    );
+    return 'Rp$formatted';
+  }  
 
   Future<void> _saveFcmToken() async {
     final String? uid = FirebaseAuth.instance.currentUser?.uid;

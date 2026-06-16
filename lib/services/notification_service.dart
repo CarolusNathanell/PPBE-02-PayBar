@@ -29,6 +29,9 @@ class NotificationService {
   bool _initialized = false;
   final Set<String> _listenedGroups = {};
 
+  // Set untuk track members tiap grup — untuk deteksi anggota keluar
+  final Map<String, Set<String>> _groupMembers = {};
+
   Future<void> initialize() async {
     if (_initialized) return;
     _initialized = true;
@@ -95,23 +98,108 @@ class NotificationService {
         .collection('groups')
         .where('members', arrayContains: uid)
         .snapshots()
-        .listen((QuerySnapshot groupSnap) {
-      for (final QueryDocumentSnapshot groupDoc in groupSnap.docs) {
-        final String groupId = groupDoc.id;
-        if (_listenedGroups.contains(groupId)) continue;
-        _listenedGroups.add(groupId);
-
+        .listen((QuerySnapshot groupSnap) async {
+      for (final DocumentChange change in groupSnap.docChanges) {
+        final String groupId = change.doc.id;
         final Map<String, dynamic> data =
-            groupDoc.data() as Map<String, dynamic>;
+            change.doc.data() as Map<String, dynamic>;
         final String groupName = data['name'] as String? ?? 'sebuah grup';
-        _listenNewTransactions(uid, groupId, groupName);
-        _listenNewSettlements(uid, groupId, groupName);
-        _listenSettlementConfirmations(uid, groupId, groupName);
+        final List<dynamic> members =
+            data['members'] as List<dynamic>? ?? [];
+        final String createdBy = data['createdBy'] as String? ?? '';
+
+        if (change.type == DocumentChangeType.added) {
+          // Deteksi dimasukkan ke grup
+          if (createdBy == uid) {
+            // user adalah creator, tidak perlu notif
+          } else {
+            // Cek apakah ini grup yang baru saja user ditambahkan
+            final DocumentSnapshot flagDoc = await _firestore
+                .collection('users')
+                .doc(uid)
+                .collection('notified_groups')
+                .doc(groupId)
+                .get();
+
+            if (!flagDoc.exists) {
+              // Belum pernah dinotif untuk grup ini
+              await _firestore
+                  .collection('users')
+                  .doc(uid)
+                  .collection('notified_groups')
+                  .doc(groupId)
+                  .set({'notifiedAt': FieldValue.serverTimestamp()});
+
+              const String title = 'Kamu Ditambahkan ke Grup! 👥';
+              final String body =
+                  'Kamu sekarang jadi anggota grup "$groupName"';
+              await _saveToInbox(
+                uid: uid,
+                title: title,
+                body: body,
+                type: 'general',
+                groupId: groupId,
+              );
+              await showLocalNotification(title: title, body: body);
+            }
+          }
+
+          // Simpan members awal untuk tracking keluar
+          _groupMembers[groupId] = Set<String>.from(
+              members.map((e) => e.toString()));
+
+          // Daftarkan listener kalau belum ada
+          if (!_listenedGroups.contains(groupId)) {
+            _listenedGroups.add(groupId);
+            _listenNewTransactions(uid, groupId, groupName);
+            _listenNewSettlements(uid, groupId, groupName);
+            _listenSettlementConfirmations(uid, groupId, groupName);
+          }
+        }
+
+        if (change.type == DocumentChangeType.modified) {
+          // Deteksi anggota keluar dari grup
+          final Set<String> newMembers =
+              Set<String>.from(members.map((e) => e.toString()));
+          final Set<String> oldMembers =
+              _groupMembers[groupId] ?? <String>{};
+
+          final Set<String> removedMembers =
+              oldMembers.difference(newMembers);
+
+          for (final String removedUid in removedMembers) {
+            if (removedUid == uid) continue; // skip diri sendiri
+
+            // Ambil nama anggota yang keluar
+            final DocumentSnapshot userDoc =
+                await _firestore.collection('users').doc(removedUid).get();
+            final Map<String, dynamic>? userData =
+                userDoc.data() as Map<String, dynamic>?;
+            final String userName =
+                userData?['name'] as String? ?? 'Seseorang';
+
+            const String title = 'Anggota Keluar dari Grup 👋';
+            final String body =
+                '$userName keluar dari grup "$groupName"';
+
+            await _saveToInbox(
+              uid: uid,
+              title: title,
+              body: body,
+              type: 'general',
+              groupId: groupId,
+            );
+            await showLocalNotification(title: title, body: body);
+          }
+
+          // Update cache members
+          _groupMembers[groupId] = newMembers;
+        }
       }
     });
   }
 
-  // Listener: Transaksi baru (notif ke anggota yang ikut bayar)
+  // Listener: Transaksi baru (notif ke pembuat + anggota yang ikut)
   void _listenNewTransactions(
       String uid, String groupId, String groupName) {
     final Timestamp startTime = Timestamp.now();
@@ -133,34 +221,47 @@ class NotificationService {
         if (createdAt == null || createdAt.compareTo(startTime) <= 0) continue;
 
         final String paidBy = tx['paidBy'] as String? ?? '';
-        if (paidBy == uid) continue;
-
-        // Cek apakah uid termasuk participants
         final List<dynamic> participants =
             tx['participants'] as List<dynamic>? ?? [];
-        if (!participants.contains(uid)) continue;
-
-        final DocumentSnapshot payerDoc =
-            await _firestore.collection('users').doc(paidBy).get();
-        final Map<String, dynamic>? payerData =
-            payerDoc.data() as Map<String, dynamic>?;
-        final String payerName = payerData?['name'] as String? ?? 'Seseorang';
-
         final String desc = tx['description'] as String? ?? '';
         final dynamic amount = tx['amount'] ?? 0;
 
-        const String title = 'Tagihan Baru! 🧾';
-        final String body =
-            '$payerName nambahin "$desc" Rp$amount di grup $groupName';
+        if (paidBy == uid) {
+          // Notif konfirmasi ke pembuat transaksi
+          const String title = 'Transaksi Tercatat! ✅';
+          final String body =
+              '"$desc" Rp$amount berhasil dicatat di grup $groupName';
 
-        await _saveToInbox(
-          uid: uid,
-          title: title,
-          body: body,
-          type: 'transaction',
-          groupId: groupId,
-        );
-        await showLocalNotification(title: title, body: body);
+          await _saveToInbox(
+            uid: uid,
+            title: title,
+            body: body,
+            type: 'transaction',
+            groupId: groupId,
+          );
+          await showLocalNotification(title: title, body: body);
+        } else if (participants.contains(uid)) {
+          // Notif ke anggota yang ikut bayar (bukan pembuat)
+          final DocumentSnapshot payerDoc =
+              await _firestore.collection('users').doc(paidBy).get();
+          final Map<String, dynamic>? payerData =
+              payerDoc.data() as Map<String, dynamic>?;
+          final String payerName =
+              payerData?['name'] as String? ?? 'Seseorang';
+
+          const String title = 'Tagihan Baru! 🧾';
+          final String body =
+              '$payerName nambahin "$desc" Rp$amount di grup $groupName';
+
+          await _saveToInbox(
+            uid: uid,
+            title: title,
+            body: body,
+            type: 'transaction',
+            groupId: groupId,
+          );
+          await showLocalNotification(title: title, body: body);
+        }
       }
     });
   }
@@ -174,8 +275,6 @@ class NotificationService {
         .collection('groups')
         .doc(groupId)
         .collection('settlements')
-        .orderBy('createdAt', descending: true)
-        .limit(20)
         .snapshots()
         .listen((QuerySnapshot snap) async {
       for (final DocumentChange change in snap.docChanges) {
@@ -183,10 +282,16 @@ class NotificationService {
 
         final Map<String, dynamic> settlement =
             change.doc.data() as Map<String, dynamic>;
-        final Timestamp? createdAt = settlement['createdAt'] as Timestamp?;
-        if (createdAt == null || createdAt.compareTo(startTime) <= 0) continue;
 
-        // Hanya notif ke toUid (penerima/yang harus konfirmasi)
+        // Kalau tidak ada createdAt, pakai waktu sekarang sebagai fallback
+        final Timestamp? createdAt =
+            settlement['createdAt'] as Timestamp? ??
+            settlement['settledAt'] as Timestamp?;
+
+        // Kalau sama sekali tidak ada timestamp, tetap proses
+        if (createdAt != null && createdAt.compareTo(startTime) <= 0) continue;
+
+        // Hanya notif ke toUid (penerima yang harus konfirmasi)
         final String toUid = settlement['toUid'] as String? ?? '';
         if (toUid != uid) continue;
 
@@ -273,7 +378,7 @@ class NotificationService {
     );
   }
 
-  // Local Notification: immediate
+  // Local notification: immediate
   Future<void> showLocalNotification({
     required String title,
     required String body,
@@ -295,7 +400,7 @@ class NotificationService {
     );
   }
 
-  // Scheduled Notification — untuk reminder
+  // Scheduled notification — untuk reminder
   Future<void> scheduleReminderNotification({
     required int id,
     required String title,
@@ -308,7 +413,7 @@ class NotificationService {
       scheduledDate.month,
       scheduledDate.day,
       7,
-      15, 
+      2,
     );
 
     // Kalau sudah lewat, skip

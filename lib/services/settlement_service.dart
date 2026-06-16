@@ -34,6 +34,7 @@ class SettlementService {
       'amount': amount,
       'settled': false,
       'settledAt': null,
+      'createdAt': FieldValue.serverTimestamp(),
     });
     
     final docSnap = await doc.get();

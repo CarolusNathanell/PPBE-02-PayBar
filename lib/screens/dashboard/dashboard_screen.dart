@@ -38,38 +38,102 @@ String _formatRupiahFull(double amount) {
 // ---------------------------------------------------------------------------
 // DATA CLASS HASIL KALKULASI BALANCE
 // Dihitung dari semua TransactionModel di semua grup user.
-//
-// Logika per transaksi:
-//   - paidBy == currentUid  → setiap participant lain hutang ke kamu
-//   - participant == currentUid && paidBy != currentUid → kamu hutang ke paidBy
 // ---------------------------------------------------------------------------
+class GroupUserBalance {
+  final String groupId;
+  final String uid;
+  final double netAmount; // Positif = dia utang ke kamu, Negatif = kamu utang ke dia
+
+  GroupUserBalance({
+    required this.groupId,
+    required this.uid,
+    required this.netAmount,
+  });
+}
+
+class DashboardData {
+  final List<GroupUserBalance> detailedBalances; // List pecahan per orang per grup
+  final double totalPiutang;
+  final double totalUtang;
+
+  DashboardData({
+    required this.detailedBalances,
+    required this.totalPiutang,
+    required this.totalUtang,
+  });
+}
 
 /// Agregasi balance dari semua transaksi di semua grup.
-/// Returns map uid → net amount (dari sudut pandang currentUid).
-Future<Map<String, double>> _calcBalances (
+Future<DashboardData> _calcDashboardData(
   String currentUid,
   List<TransactionModel> allTx,
 ) async {
-  final map = <String, double>{};
+  // Struktur: { groupId: { memberUid: netAmountInIdr } }
+  final nestedMap = <String, Map<String, double>>{};
+  final currencyService = CurrencyService();
 
+  // 1. Pecah semua transaksi ke dalam koordinat [groupId][uid]
   for (final tx in allTx) {
     if (!tx.participants.contains(currentUid)) continue;
 
+    final gId = tx.groupId;
+    nestedMap.putIfAbsent(gId, () => <String, double>{});
+
     if (tx.paidBy == currentUid) {
-      // Kamu yang bayar → semua participant lain hutang ke kamu
+      // Kamu yang bayar → orang lain berutang ke kamu
       for (String uid in tx.participants) {
         if (uid == currentUid) continue;
-        final convertedIdr =  await CurrencyService().convertToIdr(tx.remainingFor(uid), tx.currency);
-        map[uid] = (map[uid] ?? 0) + convertedIdr;
+        final converted = await currencyService.convertToIdr(tx.remainingFor(uid), tx.currency);
+        nestedMap[gId]![uid] = (nestedMap[gId]![uid] ?? 0) + converted;
       }
     } else {
-      // Orang lain yang bayar → kamu hutang ke paidBy
-      final convertedIdr =  await CurrencyService().convertToIdr(tx.remainingFor(currentUid), tx.currency);
-      map[tx.paidBy] = (map[tx.paidBy] ?? 0) - convertedIdr;
+      // Orang lain yang bayar → kamu berutang ke paidBy
+      final converted = await currencyService.convertToIdr(tx.remainingFor(currentUid), tx.currency);
+      nestedMap[gId]![tx.paidBy] = (nestedMap[gId]![tx.paidBy] ?? 0) - converted;
     }
   }
 
-  return map;
+  double totalPiutang = 0;
+  double totalUtang = 0;
+  final detailedBalances = <GroupUserBalance>[];
+
+  // 2. Hitung total kartu atas (per grup) & ratakan (flatten) list untuk rekapitulasi bawah
+  for (final gId in nestedMap.keys) {
+    final memberMap = nestedMap[gId]!;
+    double groupNetSummary = 0.0;
+
+    for (final entry in memberMap.entries) {
+      final uid = entry.key;
+      final netAmount = entry.value;
+
+      groupNetSummary += netAmount; // Akumulasi total saldo kamu di grup ini
+
+      // Jika nominalnya tidak nol (toleransi > Rp 1), masukkan ke list rekapitulasi bawah
+      if (netAmount.abs() > 1) {
+        detailedBalances.add(GroupUserBalance(
+          groupId: gId,
+          uid: uid,
+          netAmount: netAmount,
+        ));
+      }
+    }
+
+    // Hitung kartu balance atas murni dari rekapitulasi total per grup
+    if (groupNetSummary > 1) {
+      totalPiutang += groupNetSummary;
+    } else if (groupNetSummary < -1) {
+      totalUtang += groupNetSummary.abs();
+    }
+  }
+
+  // Sortir list berdasarkan nominal transaksi terbesar
+  detailedBalances.sort((a, b) => b.netAmount.abs().compareTo(a.netAmount.abs()));
+
+  return DashboardData(
+    detailedBalances: detailedBalances,
+    totalPiutang: totalPiutang,
+    totalUtang: totalUtang,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -104,7 +168,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   String get _currentUid => _auth.currentUser!.uid;
 
-  // Nama user saat ini (diambil dari Firestore sekali)
+  // Nama user saat ini (diambil dari Firestore)
   String _displayName = '';
 
   @override
@@ -219,7 +283,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 // DASHBOARD BODY
 // Dipisah agar bisa subscribe stream transaksi setelah grup sudah tersedia.
 // ---------------------------------------------------------------------------
-
 class _DashboardBody extends StatelessWidget {
   final List<GroupModel> groups;
   final TransactionService txService;
@@ -291,36 +354,27 @@ class _DashboardBody extends StatelessWidget {
     }
   }
 
-  Stream<(List<TransactionModel> allTx, Map<String, double> balanceMap)> _dashboardDataStream() {
+  Stream<(List<TransactionModel> allTx, DashboardData dashboard)> _dashboardDataStream() {
     return _allTransactionsStream().asyncMap((allTx) async {
-      // This runs in the background every time the stream emits new transactions
-      final balanceMap = await _calcBalances(currentUid, allTx);
-      return (allTx, balanceMap);
+      final data = await _calcDashboardData(currentUid, allTx);
+      return (allTx, data);
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<(List<TransactionModel> allTx, Map<String, double> balanceMap)>(
-      stream: _dashboardDataStream(),
+    return StreamBuilder<(List<TransactionModel> allTx, DashboardData dashboard)>(
+      stream: _dashboardDataStream(), // Memanggil stream yang sudah terintegrasi asyncMap
       builder: (context, snap) {
-        final (allTx, balanceMap) = snap.data ?? (<TransactionModel>[], <String, double>{});
+        if (!snap.hasData) return const Center(child: CircularProgressIndicator());
 
-        double totalPiutang = 0;
-        double totalUtang = 0;
-        for (final net in balanceMap.values) {
-          if (net > 0) {
-            totalPiutang += net;
-          } else {
-            totalUtang += net.abs();
-          }
-        }
+        final dashboard = snap.data!.$2;
+        final totalPiutang = dashboard.totalPiutang;
+        final totalUtang = dashboard.totalUtang;
         final netBalance = totalPiutang - totalUtang;
-
-        final belumBayarEntries = balanceMap.entries
-            .where((e) => e.value > 1)
-            .toList()
-          ..sort((a, b) => b.value.compareTo(a.value));
+        
+        // Data list campuran orang + grup yang sudah rapi
+        final belumBayarEntries = dashboard.detailedBalances; 
 
         return CustomScrollView(
           slivers: [
@@ -329,43 +383,46 @@ class _DashboardBody extends StatelessWidget {
               child: _buildHeader(displayName, initials(displayName)),
             ),
 
-            // ── Net Balance Card ───────────────────────────────────────────
+            // ── Net Balance Card (Menggunakan data Rekap Grup) ─────────────
             SliverToBoxAdapter(
               child: _buildNetBalanceCard(
                 netBalance: netBalance,
-                totalPiutang: totalPiutang,
-                totalUtang: totalUtang,
+                totalPiutang: totalPiutang, // Akurat berdasarkan total grup bersih
+                totalUtang: totalUtang,     // Akurat berdasarkan total grup bersih
                 groupCount: groups.length,
                 isLoading: snap.connectionState == ConnectionState.waiting,
               ),
             ),
 
-            // ── Siapa yang belum bayar ─────────────────────────────────────
-            if (belumBayarEntries.isNotEmpty) ...[
-              SliverToBoxAdapter(
-                child: _buildSectionTitle('Siapa yang belum bayar? 💸'),
-              ),
+            // ── Siapa yang belum bayar (Pecahan Per Orang Per Grup) ─────────
+            SliverToBoxAdapter(
+              child: _buildSectionTitle('Siapa yang belum bayar? 💸'),
+            ),
+            if (belumBayarEntries.isNotEmpty)
               SliverList(
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
                     final entry = belumBayarEntries[index];
+
+                    // Cari nama grup untuk dijadikan hint/konteks di list item
+                    final groupObj = groups.firstWhere(
+                      (g) => g.id == entry.groupId,
+                    );
+
                     return _BalanceListItem(
-                      uid: entry.key,
-                      net: entry.value, // Already converted to IDR
-                      avatarBg: avatarBg(entry.key),
-                      avatarFg: avatarFg(entry.key),
-                      groupHint: _groupHintForUid(entry.key, allTx),
+                      uid: entry.uid,          // ID user tetap dikirim untuk fetch data profil/avatar
+                      net: entry.netAmount,    // Nilai saldo murni (+ atau -)
+                      avatarBg: avatarBg(entry.uid),
+                      avatarFg: avatarFg(entry.uid),
+                      // Tampilkan nama grup sebagai penjelas sub-item!
+                      groupHint: groupObj.name, 
                     );
                   },
                   childCount: belumBayarEntries.length,
                 ),
-              ),
-            ] else if (snap.connectionState != ConnectionState.waiting) ...[
-              SliverToBoxAdapter(
-                child: _buildSectionTitle('Siapa yang belum bayar? 💸'),
-              ),
+              )
+            else
               SliverToBoxAdapter(child: _buildEmptyBalance()),
-            ],
 
             // ── Grup Aktif ─────────────────────────────────────────────────
             SliverToBoxAdapter(
